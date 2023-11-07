@@ -39,7 +39,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # environment
     parser.add_argument('--name', default='mint_create2_orin_visual_back_reacher', type=str)
-    parser.add_argument('--seed', default=1, type=int)
+    parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--mode', default='img_prop', type=str, 
                         help="Modes in ['img', 'img_prop', 'prop']")
     
@@ -154,16 +154,6 @@ def main(seed=-1):
     args.model_dir = os.path.join(args.work_dir, 'checkpoints') 
     args.net_params = config
 
-    # if args.save_wandb:
-    #     wandb_project_name = f'{args.name}'
-    #     wandb_run_name=f'seed_{args.seed}'
-    #     L = Logger(args.work_dir, args.xtick, vars(args), args.save_tensorboard, 
-    #                args.save_wandb, wandb_project_name, wandb_run_name, 
-    #                args.start_step > 1)
-    # else:
-    #     L = Logger(args.work_dir, args.xtick, vars(args), args.save_tensorboard, 
-    #                args.save_wandb)
-
     image_shape = (args.image_height, args.image_width, 3*args.stack_frames)
 
     env = Create2VisualReacherEnv(
@@ -187,16 +177,16 @@ def main(seed=-1):
     set_seed_everywhere(seed=args.seed)
     env.start()
 
-    # args.image_shape = env.image_space.shape
-    # args.proprioception_shape = env.observation_space.shape
+    args.image_shape = env.image_space.shape
+    args.proprioception_shape = env.observation_space.shape
     args.action_shape = env.action_space.shape
     action_dim = args.action_shape[-1]
-    # args.env_action_space = env.action_space
+    args.env_action_space = env.action_space
 
-    # if args.sync_mode:
-    #     agent = SACRADAgent(args)
-    # else:
-    #     agent = AsyncSACRADAgent(args)
+    if args.sync_mode:
+        agent = SACRADAgent(args)
+    else:
+        agent = AsyncSACRADAgent(args)
 
     task_start_time = time.time()
     task_end_time = task_start_time + (args.task_timeout_mins * 60)
@@ -206,17 +196,12 @@ def main(seed=-1):
 
     while env.total_steps <= args.env_steps:
         t1 = time.time()
-        # if env.total_steps < args.init_steps:
-        action = np.tanh(np.random.normal(0, 1, (action_dim,)))
-        # else:
-        #     action = agent.sample_actions((image, proprioception))
+        action = agent.sample_actions((image, proprioception))
         t2 = time.time()
         (next_image, next_proprioception), reward, done, info = env.step(action)
         t3 = time.time()
         
         mask = 0.0 if done else 1.0
-        # agent.add((image, proprioception), action, reward, 
-        #           (next_image, next_proprioception),  mask)
         image = next_image
         proprioception = next_proprioception
 
@@ -243,31 +228,6 @@ def main(seed=-1):
                 rf = RF_END_RUN_W_SAVE
                 break
 
-            # if update_paused and env.total_steps >= args.init_steps \
-            #     and charge > args.min_charge:
-            #     agent.resume_update()
-            #     update_paused = False
-            #     time.sleep(20)
-
-        # if not update_paused and env.total_steps >= args.init_steps:
-        #     update_infos = agent.update()
-        #     if update_infos is not None:
-        #         for update_info in update_infos:
-        #             update_info['action_sample_time'] = (t2 - t1) * 1000
-        #             update_info['env_time'] = (t3 - t2) * 1000
-        #             update_info['step'] = env.total_steps
-        #             update_info['tag'] = 'train'
-        #             update_info['dump'] = False
-        #             L.push(update_info)
-
-        # if env.total_steps % args.xtick == 0:
-        #     L.plot()
-
-        # if args.save_model and env.total_steps % args.save_model_freq == 0 and \
-        #     env.total_steps < args.env_steps:
-        #     agent.checkpoint(env.total_steps)
-    
-    # agent.pause_update()
     env.close()
     
     res_dir = '/home/jetson/projects/JSAC/results/mint_create2_orin_visual_back_reacher/hits.txt'
@@ -275,16 +235,7 @@ def main(seed=-1):
     res_fl.write(f'seed: {args.seed}, hits: {hits}\n')
     res_fl.close()
 
-    # if rf != RF_END_RUN_WO_SAVE and args.save_model:
-    #     agent.checkpoint(env.total_steps)
-    # L.plot()
-    # L.close()
-
-    # if rf == RF_END_RUN_WO_SAVE:
-    #     agent.close(without_save=True)
-    # else:
-    #     agent.close()
-    
+    agent.close(without_save=True)
 
     end_time = time.time()
     print(f'\nFinished in {end_time - task_start_time}s')
@@ -292,6 +243,9 @@ def main(seed=-1):
 
 if __name__ == '__main__':
     mp.set_start_method('spawn')
-    for i in range(1, 5):
-        main(i)
+    main(6)
+    main(7)
+    main(9)
+
+    # main(0)
 

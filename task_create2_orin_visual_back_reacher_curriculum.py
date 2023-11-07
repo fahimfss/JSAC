@@ -38,9 +38,8 @@ config = {
 def parse_args():
     parser = argparse.ArgumentParser()
     # environment
-    parser.add_argument('--name', default='create2_orin_visual_back_reacher', type=str)
+    parser.add_argument('--name', default='create2_orin_visual_back_reacher_curriculum', type=str)
 
-    # [6, 7, 9, 14, 20, 22, 24, 29]
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--mode', default='img_prop', type=str, 
                         help="Modes in ['img', 'img_prop', 'prop']")
@@ -52,19 +51,24 @@ def parse_args():
     parser.add_argument('--camera_id', default=0, type=int)
     parser.add_argument('--episode_length_time', default=15.0, type=float)
     parser.add_argument('--dt', default=0.045, type=float)
-    parser.add_argument('--min_target_size', default=0.2, type=float)
     parser.add_argument('--reset_penalty_steps', default=67, type=int)
     parser.add_argument('--min_charge', default=860, type=int)
     parser.add_argument('--reward', default=-1, type=float)
     parser.add_argument('--pause_before_reset', default=0, type=float)
     parser.add_argument('--pause_after_reset', default=0, type=float)
 
+    # curriculum
+    parser.add_argument('--start_target_size', default=0.05, type=float)
+    parser.add_argument('--final_target_size', default=0.40, type=float)
+    parser.add_argument('--target_size_increment', default=0.03, type=float)
+    parser.add_argument('--target_hits_limit', default=30, type=int)
+
     # replay buffer
-    parser.add_argument('--replay_buffer_capacity', default=100000, type=int)
+    parser.add_argument('--replay_buffer_capacity', default=30000, type=int)
     
     # train
-    parser.add_argument('--init_steps', default=20000, type=int)
-    parser.add_argument('--env_steps', default=100000, type=int)
+    parser.add_argument('--init_steps', default=1000, type=int)
+    parser.add_argument('--env_steps', default=30000, type=int)
     parser.add_argument('--task_timeout_mins', default=100, type=int)
 
     parser.add_argument('--batch_size', default=256, type=int)
@@ -73,12 +77,12 @@ def parse_args():
     parser.add_argument('--rad_offset', default=0.01, type=float)
     
     # critic
-    parser.add_argument('--critic_lr', default=3e-4, type=float)
+    parser.add_argument('--critic_lr', default=1e-3, type=float)
     parser.add_argument('--critic_tau', default=0.005, type=float)
     parser.add_argument('--critic_target_update_freq', default=1, type=int)
     
     # actor
-    parser.add_argument('--actor_lr', default=3e-4, type=float)
+    parser.add_argument('--actor_lr', default=1e-3, type=float)
     parser.add_argument('--actor_update_freq', default=1, type=int)
     parser.add_argument('--use_critic_encoder', default=True, 
                         action='store_true')
@@ -97,7 +101,7 @@ def parse_args():
     parser.add_argument('--save_tensorboard', default=False, 
                         action='store_true')
     parser.add_argument('--xtick', default=1000, type=int)
-    parser.add_argument('--save_wandb', default=True, action='store_true')
+    parser.add_argument('--save_wandb', default=False, action='store_true')
 
     parser.add_argument('--save_model', default=True, action='store_true')
     parser.add_argument('--save_model_freq', default=20000, type=int)
@@ -171,12 +175,14 @@ def main(seed=-1):
 
     image_shape = (args.image_height, args.image_width, 3*args.stack_frames)
 
+    curr_target_size = args.start_target_size
+
     env = Create2VisualReacherEnv(
         episode_length_time=args.episode_length_time, 
         dt=args.dt,
         image_shape=image_shape,
         camera_id=args.camera_id,
-        min_target_size=args.min_target_size,
+        min_target_size=curr_target_size,
         pause_before_reset=args.pause_before_reset,
         pause_after_reset=args.pause_after_reset)
     
@@ -208,6 +214,9 @@ def main(seed=-1):
     update_paused = True
     (image, proprioception) = env.reset()
 
+    target_hits = 0
+    update_target_size = True
+
     while env.total_steps <= args.env_steps:
         t1 = time.time()
         action = agent.sample_actions((image, proprioception))
@@ -216,6 +225,12 @@ def main(seed=-1):
         t3 = time.time()
         
         mask = 0.0 if done else 1.0
+
+        if done and 'target_size' in info:
+            mask = (mask, info['target_size'])
+            info.pop('target_size')
+            print("Target size: ", mask[1])
+
         agent.add((image, proprioception), action, reward, 
                   (next_image, next_proprioception),  mask)
         image = next_image
@@ -230,6 +245,20 @@ def main(seed=-1):
                 info['elapsed_time'] = time.time() - task_start_time
                 info['dump'] = True
                 L.push(info)
+
+                target_hits += 1
+                if target_hits == args.target_hits_limit and update_target_size:
+                    target_hits = 0
+                    curr_target_size += args.target_size_increment
+                    curr_target_size = min(curr_target_size, args.final_target_size)
+                    if curr_target_size >= (args.final_target_size - (1e-5)):
+                        update_target_size = False
+                    env.update_min_target_size(curr_target_size)
+                    agent.update_masks(curr_target_size)
+
+                    print('\nTarget size updated.')
+                    print(f'Current target size: {curr_target_size}')
+
                 (image, proprioception) = env.reset()
             else:
                 episode = info['episode']

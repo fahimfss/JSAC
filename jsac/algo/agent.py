@@ -302,6 +302,10 @@ class AsyncSACRADAgent(BaseAgent):
 
         self._obs_queue.put((image, proprioception, action, reward,
                              next_image, next_proprioception, done))
+    
+    def update_masks(self, target_size):
+        self._obs_queue.put('update_masks')
+        self._obs_queue.put(target_size)
 
     def sample_actions(self, state, deterministic=False):
         with self._actor_lock:

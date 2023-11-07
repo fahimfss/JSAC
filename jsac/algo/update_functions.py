@@ -61,9 +61,9 @@ def actor_update(rng, actor, critic, temp, batch, use_critic_encoder=True):
         }
     
     if use_critic_encoder:
-        params = actor.params.unfreeze()
+        params = actor.params
         params['encoder'] = critic.params['encoder']
-        actor = actor.replace(params=freeze(params))
+        actor = actor.replace(params=params)
 
     grads, info = jax.grad(actor_loss_fn, has_aux=True)(actor.params)
     actor_new = actor.apply_gradients(grads=grads)

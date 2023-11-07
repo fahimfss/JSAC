@@ -147,7 +147,7 @@ class Create2VisualReacherEnv(RTRLBaseEnv, gym.Env):
                 )
             self._image_reward_buffer = SharedBuffer(
                 buffer_len=SharedBuffer.DEFAULT_BUFFER_LEN,
-                array_len=1,
+                array_len=2,
                 array_type='d',
                 np_array_type='d',
                 )
@@ -159,6 +159,9 @@ class Create2VisualReacherEnv(RTRLBaseEnv, gym.Env):
                         observation_dim=-2, # dont use the base class sensation buffer
                         dt=dt,
                         **kwargs)
+
+    def update_min_target_size(self, new_min_target_size):
+        self._min_target_size = new_min_target_size
     
     def _sensor_to_sensation_(self):
         # overwrite this to support image
@@ -193,8 +196,9 @@ class Create2VisualReacherEnv(RTRLBaseEnv, gym.Env):
                 roomba_obs, r_r, r_d = roomba_obs_r_d[0][:-2], roomba_obs_r_d[0][-2], roomba_obs_r_d[0][-1]
 
             image, im_d = image_d[0][:-1], image_d[0][-1]
-            im_r, _, _ = self._image_reward_buffer.read_update()
-            im_r = im_r[0][0]
+            im_r_ts, _, _ = self._image_reward_buffer.read_update()
+            im_r = im_r_ts[0][0]
+            im_ts = im_r_ts[0][1]
 
             delay = abs(image_timestamp[-1] - roomba_obs_timestamp[-1])
             if delay > self._dt:
@@ -218,14 +222,18 @@ class Create2VisualReacherEnv(RTRLBaseEnv, gym.Env):
         sensor_window, _, _ = self._sensor_comms['Create2'].sensor_buffer.read()
         battery_charge =  sensor_window[-1][0]['battery charge']
 
-        return (image, roomba_obs), reward,  done, {'battery_charge': battery_charge}
+        info = {'battery_charge': battery_charge, 'target_size': im_ts}
+
+        return (image, roomba_obs), reward,  done, info
 
     def _compute_image_obs_(self, sensor_window, timestamp_window, index_window):
         # return np.concatenate((actual_sensation, [reward], [done]))
-        reward, done = self._calc_image_reward(sensor_window)
+        reward, done, target_size = self._calc_image_reward(sensor_window)
         flatten_image = np.concatenate(sensor_window, axis=-1)
 
-        return np.concatenate((flatten_image, [done])).astype('uint8'), reward
+        reward_ts = np.asarray([reward, target_size])
+
+        return np.concatenate((flatten_image, [done])).astype('uint8'), reward_ts
 
     def _compute_roomba_obs_(self, sensor_window, timestamp_window, index_window):
         """The required _computer_sensation_ interface.
@@ -318,46 +326,66 @@ class Create2VisualReacherEnv(RTRLBaseEnv, gym.Env):
             self._write_opcode('drive_direct', 0, 0)
             time.sleep(0.1)
 
-        # rotate and drive backward 
+        
+        # drive backward and rotate randomly
         logging.info("Moving Create2 into position.")
         target_values = [300, 300]
-        # target_values = [-300, -300]
-        move_time_1 = np.random.uniform(low=1, high=1.5)
-        move_time_2 = np.random.uniform(low=0.3, high=0.6)
-        rotate_time_1 = np.random.uniform(low=0.25, high=0.75)
-        rotate_time_2 = np.random.uniform(low=0.5, high=1)
+        move_time = np.random.uniform(low=1, high=1.5)
+        rotate_time = np.random.uniform(low=0.5, high=1)
         direction = np.random.choice((1, -1))
         
-        # rotate
-        self._write_opcode('drive_direct', *(300*direction, -300*direction))
-        time.sleep(rotate_time_1)
-        self._write_opcode('drive', 0, 0)
-        time.sleep(0.1)
-
         # back
         self._write_opcode('drive_direct', *target_values)
-        time.sleep(move_time_1)
+        time.sleep(move_time)
         self._write_opcode('drive', 0, 0)
         time.sleep(0.1)
 
         # rotate
         self._write_opcode('drive_direct', *(300*direction, -300*direction))
-        time.sleep(rotate_time_2)
+        time.sleep(rotate_time)
         self._write_opcode('drive', 0, 0)
         time.sleep(0.1)
         
         # back
-        self._write_opcode('drive_direct', *[-300, -300])
-        # self._write_opcode('drive_direct', *[300, 300])
-        time.sleep(move_time_2)
+        self._write_opcode('drive_direct', *target_values)
+        time.sleep(move_time)
         self._write_opcode('drive', 0, 0)
         time.sleep(0.1)
-        '''
-        rand_state_array_type, rand_state_array_size, rand_state_array = utils.get_random_state_array(
-            self._rand_obj_.get_state()
-        )
-        np.copyto(self._shared_rstate_array_, np.frombuffer(rand_state_array, dtype=rand_state_array_type))
-        '''
+
+        # # rotate and drive backward 
+        # logging.info("Moving Create2 into position.")
+        # target_values = [300, 300]
+        # move_time_1 = np.random.uniform(low=1, high=1.5)
+        # move_time_2 = np.random.uniform(low=0.3, high=0.6)
+        # rotate_time_1 = np.random.uniform(low=0.25, high=0.75)
+        # rotate_time_2 = np.random.uniform(low=0.5, high=1)
+        # direction = np.random.choice((1, -1))
+        
+        # # rotate
+        # self._write_opcode('drive_direct', *(300*direction, -300*direction))
+        # time.sleep(rotate_time_1)
+        # self._write_opcode('drive', 0, 0)
+        # time.sleep(0.1)
+
+        # # back
+        # self._write_opcode('drive_direct', *target_values)
+        # time.sleep(move_time_1)
+        # self._write_opcode('drive', 0, 0)
+        # time.sleep(0.1)
+
+        # # rotate
+        # self._write_opcode('drive_direct', *(300*direction, -300*direction))
+        # time.sleep(rotate_time_2)
+        # self._write_opcode('drive', 0, 0)
+        # time.sleep(0.1)
+        
+        # # back
+        # self._write_opcode('drive_direct', *[-300, -300])
+        # time.sleep(move_time_2)
+        # self._write_opcode('drive', 0, 0)
+        # time.sleep(0.1)
+        
+        
 
         # make sure in SAFE mode in case the random drive caused switch to PASSIVE, or
         # create2 stuck somewhere and require human reset (don't want an episode to start
@@ -461,7 +489,7 @@ class Create2VisualReacherEnv(RTRLBaseEnv, gym.Env):
         if self._dense_reward:
             reward = target_size
 
-        return reward, done
+        return reward, done, target_size
 
     def _write_opcode(self, opcode_name, *args):
         """Helper method to force write a command not part of the action dimension.

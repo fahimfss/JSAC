@@ -148,6 +148,10 @@ class WrappedEnv(Env):
             new_info['episode_steps'] = self._episode_steps
             new_info['duration'] = time.time() - self._start_time
             new_info['return'] = self._reward_sum
+            
+            if done and 'target_size' in info:
+                new_info['target_size'] = info['target_size']
+
             self._episode += 1
             return done, new_info
         

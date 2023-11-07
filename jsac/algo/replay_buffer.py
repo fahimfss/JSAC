@@ -47,6 +47,8 @@ class RadReplayBuffer():
         if init_buffers:
             self._init_buffers()
 
+        self._target_sizes = {}
+
     def _init_buffers(self):
         if self._load_path:
             self._load()
@@ -80,7 +82,15 @@ class RadReplayBuffer():
             self._next_propris[self._idx] = next_propri
         self._actions[self._idx] = action
         self._rewards[self._idx] = reward
-        self._masks[self._idx] = mask
+
+        if self._idx in self._target_sizes:
+            self._target_sizes.pop(self._idx)
+
+        if type(mask) is tuple:
+            self._masks[self._idx] = mask[0]
+            self._target_sizes[self._idx] = mask[1]
+        else:
+            self._masks[self._idx] = mask
 
         self._idx = (self._idx + 1) % self._capacity
         self._full = self._full or self._idx == 0
@@ -113,6 +123,11 @@ class RadReplayBuffer():
                      actions=actions, rewards=rewards, masks=masks,
                      next_images=next_images, next_proprioceptions=next_propris)
 
+    def update_masks(self, target_size):
+        for key, value in self._target_sizes.items():
+            if value < target_size:
+                self._masks[key] = 1.0
+    
 
     def save(self, save_path):
         tic = time.time()
@@ -122,7 +137,8 @@ class RadReplayBuffer():
                 'count': self._count,
                 'idx': self._idx,
                 'full': self._full,
-                'steps': self._steps
+                'steps': self._steps,
+                'target_sizes': self._target_sizes
             }
 
             with open(os.path.join(save_path, "buffer_data.pkl"),
@@ -156,6 +172,7 @@ class RadReplayBuffer():
         self._idx = data['idx']
         self._full = data['full']
         self._steps = data['steps']
+        self._target_sizes = data['target_sizes'] 
 
         if not self._ignore_image:
             self._images = np.load(os.path.join(self._load_path, "images.npy"))
@@ -234,8 +251,13 @@ class AsyncSMRadReplayBuffer(RadReplayBuffer):
             if isinstance(observation, str):
                 if observation == 'close':
                     return
-                if observation == 'start':
+                elif observation == 'start':
                     self._start_batch = True
+                    continue
+                elif observation == 'update_masks':
+                    target_size = self._obs_queue.get()
+                    with self._lock:
+                        self.update_masks(target_size)
                     continue
 
             with self._lock:

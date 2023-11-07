@@ -55,19 +55,17 @@ def init_actor(rng, critic, learning_rate, init_image_shape,
                         key2)['params']
     
     if use_critic_encoder:
+        
         partition_optimizers = {
             'trainable': optax.adam(learning_rate=learning_rate), 
             'frozen': optax.set_to_zero()}
         
-        param_partitions = freeze(traverse_util.path_aware_map(
-            lambda path, 
-            v: 'frozen' if 'encoder' in path else 'trainable', params))
+        param_partitions = traverse_util.path_aware_map(
+            lambda path, v: 'frozen' if 'encoder' in path else 'trainable', params)
         
         tx = optax.multi_transform(partition_optimizers, param_partitions)
-        
-        params = params.unfreeze()
+
         params['encoder'] = critic.params['encoder']
-        params = freeze(params)
 
     else:
         tx = optax.adam(learning_rate=learning_rate)
