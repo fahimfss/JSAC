@@ -25,16 +25,16 @@ class SpatialSoftmax(nn.Module):
       self._pos_x = pos_x.reshape(self.height*self.width)
       self._pos_y = pos_y.reshape(self.height*self.width)
 
-      self._temperature = self.param(
-          'temperature', 
-          nn.initializers.constant(self.temp), (1,)) 
+    #   self._temperature = self.param(
+    #       'temperature', 
+    #       nn.initializers.constant(self.temp), (1,)) 
 
     @nn.compact
     def __call__(self, feature):  
         feature = feature.transpose(0, 3, 1, 2)
         feature = feature.reshape(-1, self.height*self.width)
 
-        feature = feature/self._temperature
+        # feature = feature/self._temperature
     
         softmax_attention = nn.activation.softmax(feature, axis = -1)
 
@@ -69,7 +69,8 @@ class Encoder(nn.Module):
             layer_name = 'encoder_conv_' + str(i)
             x = nn.Conv(features=out_channel, 
                         kernel_size=(kernel_size, kernel_size),
-                        strides=(stride, stride),
+                        strides=stride,
+                        padding=0,
                         kernel_init=nn.initializers
                         .delta_orthogonal(column_axis=-1),
                         name=layer_name 
@@ -77,7 +78,7 @@ class Encoder(nn.Module):
 
             if i < len(conv_params) - 1:
                 x = nn.relu(x)
-
+        
         if self.spatial_softmax:
             b, height, width, channel = x.shape
             x = SpatialSoftmax(height=height, width=width, channel=channel, 
@@ -87,7 +88,7 @@ class Encoder(nn.Module):
             x = nn.Dense(self.net_params['latent'], kernel_init=default_init(), 
                          name='encoder_dense')(x)
             x = nn.LayerNorm(name='encoder_layernorm')(x)
-            
+
         if self.mode == MODE.IMG_PROP:
            x = jnp.concatenate(axis = -1, arrays=(x, proprioceptions)) 
 

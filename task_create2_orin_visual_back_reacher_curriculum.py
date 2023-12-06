@@ -44,8 +44,8 @@ def parse_args():
     parser.add_argument('--mode', default='img_prop', type=str, 
                         help="Modes in ['img', 'img_prop', 'prop']")
     
-    parser.add_argument('--image_height', default=90, type=int)
-    parser.add_argument('--image_width', default=120, type=int)
+    parser.add_argument('--image_height', default=120, type=int)
+    parser.add_argument('--image_width', default=160, type=int)
     parser.add_argument('--stack_frames', default=3, type=int)
 
     parser.add_argument('--camera_id', default=0, type=int)
@@ -58,17 +58,17 @@ def parse_args():
     parser.add_argument('--pause_after_reset', default=0, type=float)
 
     # curriculum
-    parser.add_argument('--start_target_size', default=0.05, type=float)
-    parser.add_argument('--final_target_size', default=0.40, type=float)
+    parser.add_argument('--start_target_size', default=0.17, type=float)
+    parser.add_argument('--final_target_size', default=0.35, type=float)
     parser.add_argument('--target_size_increment', default=0.03, type=float)
-    parser.add_argument('--target_hits_limit', default=30, type=int)
+    parser.add_argument('--target_hits_limit', default=40, type=int)
 
     # replay buffer
-    parser.add_argument('--replay_buffer_capacity', default=30000, type=int)
+    parser.add_argument('--replay_buffer_capacity', default=100000, type=int)
     
     # train
     parser.add_argument('--init_steps', default=1000, type=int)
-    parser.add_argument('--env_steps', default=30000, type=int)
+    parser.add_argument('--env_steps', default=200000, type=int)
     parser.add_argument('--task_timeout_mins', default=100, type=int)
 
     parser.add_argument('--batch_size', default=256, type=int)
@@ -105,12 +105,12 @@ def parse_args():
 
     parser.add_argument('--save_model', default=True, action='store_true')
     parser.add_argument('--save_model_freq', default=20000, type=int)
-    parser.add_argument('--load_model', default=-1, type=int)
-    parser.add_argument('--start_step', default=0, type=int)
-    parser.add_argument('--start_episode', default=0, type=int)
+    parser.add_argument('--load_model', default=100001, type=int)
+    parser.add_argument('--start_step', default=100001, type=int)
+    parser.add_argument('--start_episode', default=166, type=int)
 
     parser.add_argument('--buffer_save_path', default='./buffers/', type=str)
-    parser.add_argument('--buffer_load_path', default='', type=str)
+    parser.add_argument('--buffer_load_path', default='./buffers/', type=str)
 
     args = parser.parse_args()
     return args

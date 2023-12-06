@@ -50,8 +50,8 @@ class Create2VisualReacherEnv(RTRLBaseEnv, gym.Env):
         self._internal_timing = 0.015
         self._hsv_mask = ((35, 50, 150), (80, 165, 255))
         self._min_target_size = min_target_size
-        self._min_battery = 900
-        self._max_battery = 1650
+        self._min_battery = 800
+        self._max_battery = 1800
         self._dense_reward = dense_reward
 
         # get the opcode for our main action (only 1 action)
@@ -327,63 +327,79 @@ class Create2VisualReacherEnv(RTRLBaseEnv, gym.Env):
             time.sleep(0.1)
 
         
-        # drive backward and rotate randomly
-        logging.info("Moving Create2 into position.")
-        target_values = [300, 300]
-        move_time = np.random.uniform(low=1, high=1.5)
-        rotate_time = np.random.uniform(low=0.5, high=1)
-        direction = np.random.choice((1, -1))
-        
-        # back
-        self._write_opcode('drive_direct', *target_values)
-        time.sleep(move_time)
-        self._write_opcode('drive', 0, 0)
-        time.sleep(0.1)
-
-        # rotate
-        self._write_opcode('drive_direct', *(300*direction, -300*direction))
-        time.sleep(rotate_time)
-        self._write_opcode('drive', 0, 0)
-        time.sleep(0.1)
-        
-        # back
-        self._write_opcode('drive_direct', *target_values)
-        time.sleep(move_time)
-        self._write_opcode('drive', 0, 0)
-        time.sleep(0.1)
-
-        # # rotate and drive backward 
+        # # drive backward and rotate randomly
         # logging.info("Moving Create2 into position.")
         # target_values = [300, 300]
-        # move_time_1 = np.random.uniform(low=1, high=1.5)
-        # move_time_2 = np.random.uniform(low=0.3, high=0.6)
-        # rotate_time_1 = np.random.uniform(low=0.25, high=0.75)
-        # rotate_time_2 = np.random.uniform(low=0.5, high=1)
+        # move_time = np.random.uniform(low=1, high=1.5)
+        # rotate_time = np.random.uniform(low=0.5, high=1)
         # direction = np.random.choice((1, -1))
         
+        # # back
+        # self._write_opcode('drive_direct', *target_values)
+        # time.sleep(move_time)
+        # self._write_opcode('drive', 0, 0)
+        # time.sleep(0.1)
+
         # # rotate
+        # self._write_opcode('drive_direct', *(300*direction, -300*direction))
+        # time.sleep(rotate_time)
+        # self._write_opcode('drive', 0, 0)
+        # time.sleep(0.1)
+        
+        # # back
+        # self._write_opcode('drive_direct', *target_values)
+        # time.sleep(move_time)
+        # self._write_opcode('drive', 0, 0)
+        # time.sleep(0.1)
+
+        # # rotate
+        # direction = np.random.choice((1, -1))
+        # rotate_time_1 = np.random.uniform(low=0.2, high=1.1)
+        # move_time_1 = np.random.uniform(low=1.0, high=1.7)
         # self._write_opcode('drive_direct', *(300*direction, -300*direction))
         # time.sleep(rotate_time_1)
         # self._write_opcode('drive', 0, 0)
         # time.sleep(0.1)
 
         # # back
-        # self._write_opcode('drive_direct', *target_values)
+        # self._write_opcode('drive_direct', *[-300, -300])
         # time.sleep(move_time_1)
         # self._write_opcode('drive', 0, 0)
         # time.sleep(0.1)
 
-        # # rotate
-        # self._write_opcode('drive_direct', *(300*direction, -300*direction))
-        # time.sleep(rotate_time_2)
-        # self._write_opcode('drive', 0, 0)
-        # time.sleep(0.1)
+
+        # rotate and drive backward 
+        logging.info("Moving Create2 into position.")
+        target_values = [300, 300]
+        move_time_1 = np.random.uniform(low=1, high=1.5)
+        move_time_2 = np.random.uniform(low=0.3, high=0.6)
+        rotate_time_1 = np.random.uniform(low=0.2, high=0.8)
+        rotate_time_2 = np.random.uniform(low=0.5, high=1.1)
+        direction = np.random.choice((1, -1))
         
-        # # back
-        # self._write_opcode('drive_direct', *[-300, -300])
-        # time.sleep(move_time_2)
-        # self._write_opcode('drive', 0, 0)
-        # time.sleep(0.1)
+        # rotate
+        self._write_opcode('drive_direct', *(300*direction, -300*direction))
+        time.sleep(rotate_time_1)
+        self._write_opcode('drive', 0, 0)
+        time.sleep(0.1)
+
+        # back
+        self._write_opcode('drive_direct', *target_values)
+        time.sleep(move_time_1)
+        self._write_opcode('drive', 0, 0)
+        time.sleep(0.1)
+
+        # rotate
+        self._write_opcode('drive_direct', *(300*direction, -300*direction))
+        time.sleep(rotate_time_2)
+        self._write_opcode('drive', 0, 0)
+        time.sleep(0.1)
+        
+        # back
+        self._write_opcode('drive_direct', *[-300, -300])
+        time.sleep(move_time_2)
+        self._write_opcode('drive', 0, 0)
+        time.sleep(0.1)
         
         
 

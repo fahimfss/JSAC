@@ -124,9 +124,14 @@ class RadReplayBuffer():
                      next_images=next_images, next_proprioceptions=next_propris)
 
     def update_masks(self, target_size):
+        removed = []
         for key, value in self._target_sizes.items():
             if value < target_size:
                 self._masks[key] = 1.0
+                removed.append(key)
+                
+        for key in removed:
+            self._target_sizes.pop(key)
     
 
     def save(self, save_path):

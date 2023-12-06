@@ -40,7 +40,6 @@ def parse_args():
     # environment
     parser.add_argument('--name', default='create2_orin_visual_back_reacher', type=str)
 
-    # [6, 7, 9, 14, 20, 22, 24, 29]
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--mode', default='img_prop', type=str, 
                         help="Modes in ['img', 'img_prop', 'prop']")
@@ -54,18 +53,18 @@ def parse_args():
     parser.add_argument('--dt', default=0.045, type=float)
     parser.add_argument('--min_target_size', default=0.2, type=float)
     parser.add_argument('--reset_penalty_steps', default=67, type=int)
-    parser.add_argument('--min_charge', default=860, type=int)
+    parser.add_argument('--min_charge', default=810, type=int)
     parser.add_argument('--reward', default=-1, type=float)
     parser.add_argument('--pause_before_reset', default=0, type=float)
     parser.add_argument('--pause_after_reset', default=0, type=float)
 
     # replay buffer
-    parser.add_argument('--replay_buffer_capacity', default=100000, type=int)
+    parser.add_argument('--replay_buffer_capacity', default=150000, type=int)
     
     # train
-    parser.add_argument('--init_steps', default=20000, type=int)
-    parser.add_argument('--env_steps', default=100000, type=int)
-    parser.add_argument('--task_timeout_mins', default=100, type=int)
+    parser.add_argument('--init_steps', default=1000, type=int)
+    parser.add_argument('--env_steps', default=175000, type=int)
+    parser.add_argument('--task_timeout_mins', default=95, type=int)
 
     parser.add_argument('--batch_size', default=256, type=int)
     parser.add_argument('--sync_mode', default=False, action='store_true')
@@ -88,7 +87,7 @@ def parse_args():
     parser.add_argument('--spatial_softmax', default=True, action='store_true')
     
     # sac
-    parser.add_argument('--temp_lr', default=3e-4, type=float)
+    parser.add_argument('--temp_lr', default=1e-4, type=float)
     parser.add_argument('--discount', default=0.99, type=float)
     parser.add_argument('--init_temperature', default=0.1, type=float)
     
@@ -100,13 +99,13 @@ def parse_args():
     parser.add_argument('--save_wandb', default=True, action='store_true')
 
     parser.add_argument('--save_model', default=True, action='store_true')
-    parser.add_argument('--save_model_freq', default=20000, type=int)
-    parser.add_argument('--load_model', default=-1, type=int)
-    parser.add_argument('--start_step', default=0, type=int)
-    parser.add_argument('--start_episode', default=0, type=int)
+    parser.add_argument('--save_model_freq', default=5000, type=int)
+    parser.add_argument('--load_model', default=101770, type=int)
+    parser.add_argument('--start_step', default=101771, type=int)
+    parser.add_argument('--start_episode', default=151, type=int)
 
     parser.add_argument('--buffer_save_path', default='./buffers/', type=str)
-    parser.add_argument('--buffer_load_path', default='', type=str)
+    parser.add_argument('--buffer_load_path', default='./buffers/', type=str)
 
     args = parser.parse_args()
     return args
