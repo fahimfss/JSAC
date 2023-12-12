@@ -38,19 +38,19 @@ config = {
 def parse_args():
     parser = argparse.ArgumentParser()
     # environment
-    parser.add_argument('--name', default='mint_create2_orin_visual_back_reacher', type=str)
+    parser.add_argument('--name', default='mint_create2_orin_visual_back_reacher_08', type=str)
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--mode', default='img_prop', type=str, 
                         help="Modes in ['img', 'img_prop', 'prop']")
     
-    parser.add_argument('--image_height', default=90, type=int)
-    parser.add_argument('--image_width', default=120, type=int)
+    parser.add_argument('--image_height', default=120, type=int)
+    parser.add_argument('--image_width', default=160, type=int)
     parser.add_argument('--stack_frames', default=3, type=int)
 
     parser.add_argument('--camera_id', default=0, type=int)
     parser.add_argument('--episode_length_time', default=15.0, type=float)
     parser.add_argument('--dt', default=0.045, type=float)
-    parser.add_argument('--min_target_size', default=0.2, type=float)
+    parser.add_argument('--min_target_size', default=0.08, type=float)
     parser.add_argument('--reset_penalty_steps', default=67, type=int)
     parser.add_argument('--reward', default=-1, type=float)
     parser.add_argument('--pause_before_reset', default=0, type=float)
@@ -230,7 +230,7 @@ def main(seed=-1):
 
     env.close()
     
-    res_dir = '/home/jetson/projects/JSAC/results/mint_create2_orin_visual_back_reacher/hits.txt'
+    res_dir = '/home/jetson/projects/JSAC/results/mint_create2_orin_visual_back_reacher_08/hits_08.txt'
     res_fl = open(res_dir, 'a')
     res_fl.write(f'seed: {args.seed}, hits: {hits}\n')
     res_fl.close()
@@ -243,9 +243,9 @@ def main(seed=-1):
 
 if __name__ == '__main__':
     mp.set_start_method('spawn')
-    main(6)
-    main(7)
-    main(9)
+    for i in range(5):
+        main(i)
+        time.sleep(10)
 
     # main(0)
 
