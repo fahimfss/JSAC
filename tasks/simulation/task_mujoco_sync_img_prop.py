@@ -25,9 +25,9 @@ config = {
         [32, 32, 3, 1],
     ],
     
-    'latent': 50,
+    'latent': 256,
 
-    'mlp': [512, 512],
+    'mlp': [2048, 1024, 256],
 }
 
 def parse_args():
@@ -41,7 +41,7 @@ def parse_args():
     parser.add_argument('--env_name', default='Reacher-v2', type=str)
     parser.add_argument('--image_height', default=100, type=int)
     parser.add_argument('--image_width', default=100, type=int)
-    parser.add_argument('--stack_frames', default=3, type=int)
+    parser.add_argument('--image_history', default=3, type=int)
 
     # replay buffer
     parser.add_argument('--replay_buffer_capacity', default=20000, type=int)
@@ -64,6 +64,8 @@ def parse_args():
     parser.add_argument('--actor_update_freq', default=1, type=int)
     
     # encoder
+    ## Available models: spatial_softmax, T/16, S/16, B/16, L/16, H/16, T/32, S/32, B/32, L/32, H/32 
+    parser.add_argument('--vision_model', default='S/16', type=str)
     parser.add_argument('--spatial_softmax', default=True, action='store_true')
     
     # sac
@@ -72,6 +74,8 @@ def parse_args():
     parser.add_argument('--temp_lr', default=1e-4, type=float)
     
     # misc
+    ## Available dtypes: bf16, f16, f32 
+    parser.add_argument('--dtype', default='bf16', type=str)
     parser.add_argument('--work_dir', default='.', type=str)
     parser.add_argument('--save_tensorboard', default=False, action='store_true')
     parser.add_argument('--xtick', default=500, type=int)
@@ -144,7 +148,7 @@ def main(seed=-1):
 
     ## Create the environment
     env = MujocoVisualEnv(
-        args.env_name, args.mode, args.seed, args.stack_frames, args.image_width, 
+        args.env_name, args.mode, args.seed, args.image_history, args.image_width, 
         args.image_height)
     
     env = WrappedEnv(env, start_step=args.start_step, 
@@ -153,6 +157,7 @@ def main(seed=-1):
     set_seed_everywhere(seed=args.seed)
 
     args.image_shape = env.image_space.shape
+    args.single_image_shape = (args.image_height, args.image_width, 3)
     args.proprioception_shape = env.proprioception_space.shape
     args.action_shape = env.action_space.shape
     args.env_action_space = env.action_space
@@ -165,6 +170,7 @@ def main(seed=-1):
         agent = AsyncSACRADAgent(args)
 
     image, proprioception = env.reset()
+    first_step = True
     
     ## Start the training loop
     while env.total_steps < args.env_steps:
@@ -177,7 +183,8 @@ def main(seed=-1):
         mask = 1.0 if not done or 'TimeLimit.truncated' in info else 0.0
 
         agent.add((image, proprioception), action, reward, 
-                  (next_image, next_proprioception),  mask)
+                  (next_image, next_proprioception),  mask, first_step)
+        first_step = False
 
         image = next_image
         proprioception = next_proprioception
@@ -188,6 +195,7 @@ def main(seed=-1):
             info['dump'] = True
             info['elapsed_time'] = time.time() - task_start_time
             L.push(info)
+            first_step = True
 
         if env.total_steps > args.init_steps:
             update_infos = agent.update()

@@ -66,6 +66,8 @@ def parse_args():
     parser.add_argument('--actor_sync_freq', default=8, type=int)
     
     # encoder
+    ## Available models: spatial_softmax, T/16, S/16, B/16, L/16, H/16, T/32, S/32, B/32, L/32, H/32 
+    parser.add_argument('--vision_model', default='T/16', type=str)
     parser.add_argument('--spatial_softmax', default=True, action='store_true')
     
     # sac
@@ -74,6 +76,8 @@ def parse_args():
     parser.add_argument('--temp_lr', default=1e-4, type=float)
     
     # misc
+    ## Available dtypes: bf16, f16, f32 
+    parser.add_argument('--dtype', default='bf16', type=str)
     parser.add_argument('--work_dir', default='.', type=str)
     parser.add_argument('--save_tensorboard', default=False, 
                         action='store_true')

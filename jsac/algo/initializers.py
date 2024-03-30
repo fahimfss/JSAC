@@ -30,15 +30,19 @@ def init_critic(rng,
                 action_dim, 
                 net_params, 
                 rad_offset, 
+                vision_model,
+                dtype,
                 mode=MODE.IMG_PROP):
 
     model = CriticModel(net_params, 
                         action_dim, 
                         rad_offset,  
-                        mode)
+                        mode,
+                        vision_model,
+                        dtype)
     
     rng, *keys = random.split(rng, 4)
-    init_actions = random.uniform(keys[0], (1, action_dim), dtype=jnp.float32)
+    init_actions = random.uniform(keys[0], (1, action_dim), dtype=dtype)
 
     init_image, init_proprioception = get_init_data(
         init_image_shape, 
@@ -51,7 +55,7 @@ def init_critic(rng,
                         init_proprioception, 
                         init_actions)['params']
 
-    tx = optax.adam(learning_rate=learning_rate)
+    tx = optax.adam(learning_rate=learning_rate, mu_dtype=dtype)
 
     return rng, TrainState.create(apply_fn=model.apply, 
                                   params=params, 
@@ -64,12 +68,16 @@ def init_inference_actor(rng,
                          action_dim, 
                          net_params, 
                          rad_offset,
+                         vision_model,
+                         dtype,
                          mode=MODE.IMG_PROP):
     
     model = ActorModel(net_params,
                        action_dim,  
                        rad_offset, 
-                       mode)
+                       mode,
+                       vision_model,
+                       dtype)
     
     init_image, init_proprioception = get_init_data(
         init_image_shape, 
@@ -85,19 +93,23 @@ def init_inference_actor(rng,
     return rng, model
 
 def init_actor(rng, 
-               critic, 
+               critic,
                learning_rate, 
                init_image_shape, 
                init_proprioception_shape, 
                action_dim, 
                net_params, 
-               rad_offset,  
+               rad_offset,
+               vision_model, 
+               dtype,  
                mode=MODE.IMG_PROP):
     
     model = ActorModel(net_params,
                        action_dim,  
                        rad_offset, 
-                       mode)
+                       mode,
+                       vision_model,
+                       dtype)
 
     rng, *keys = random.split(rng, 5)
     
@@ -116,19 +128,19 @@ def init_actor(rng,
     if mode==MODE.IMG_PROP or mode==MODE.IMG:
         params['encoder'] = critic.params['encoder']
 
-    tx = optax.adam(learning_rate=learning_rate)
+    tx = optax.adam(learning_rate=learning_rate, mu_dtype=dtype)
     
     return rng, TrainState.create(apply_fn=model.apply, 
                                   params=params, 
                                   tx=tx)
 
 
-def init_temperature(rng, learning_rate, alpha=1.0):
-    model = Temperature(initial_temperature=alpha)
+def init_temperature(rng, learning_rate, dtype, alpha=1.0):
+    model = Temperature(alpha, dtype)
     rng, key = random.split(rng)
     params = model.init(key)['params']
 
-    tx = optax.adam(learning_rate=learning_rate)
+    tx = optax.adam(learning_rate=learning_rate, mu_dtype=dtype)
 
     return rng, TrainState.create(apply_fn=model.apply, 
                                   params=params, 

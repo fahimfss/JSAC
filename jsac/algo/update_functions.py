@@ -34,7 +34,7 @@ def critic_update(rng,
     temp_val = temp.apply_fn({"params": temp.params})
     target_V = jnp.minimum(target_Q1, target_Q2) - temp_val * next_log_probs
 
-    target_Q = batch.rewards + batch.masks * discount * target_V
+    target_Q = batch.rewards + batch.dones * discount * target_V
 
     def critic_loss_fn(critic_params):
         q1, q2 = critic.apply_fn( 
@@ -72,7 +72,7 @@ def actor_update(rng,
     rng, *keys_cr = random.split(rng, 3)
     
     temp_val = temp.apply_fn({"params": temp.params})
-
+    
     # The actor's encoder parameters are not updated
     # They are copied from critic's parameters
     if 'encoder' in critic.params:
@@ -85,8 +85,8 @@ def actor_update(rng,
             keys_ac,
             batch.images, 
             batch.proprioceptions,
-            True,                       # apply rad
-            True)                       # stop_gradient to encoder
+            True)                       # apply rad
+
  
         q1, q2 = critic.apply_fn(
             {'params': critic.params}, 

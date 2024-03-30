@@ -1,4 +1,4 @@
-from jsac.algo.replay_buffer import AsyncSMRadReplayBuffer
+from jsac.algo.se_replay_buffer import AsyncSampleEfficientReplayBuffer, Batch
 
 import jax
 from jax import random
@@ -48,9 +48,12 @@ class BaseAgent:
         self._model_dir = args.model_dir
         self._buffer_save_path = args.buffer_save_path
         self._buffer_load_path = args.buffer_load_path
+        self._vision_model = args.vision_model 
+        self._image_history = args.image_history
 
         if self._mode == MODE.IMG or self._mode == MODE.IMG_PROP:
             self._image_shape = args.image_shape
+            self._single_image_shape = args.single_image_shape
             self._rad_offset = args.rad_offset
             self._spatial_softmax = args.spatial_softmax
         else:
@@ -61,9 +64,17 @@ class BaseAgent:
         if not self._sync_mode:
             self._actor_sync_freq = args.actor_sync_freq
 
-
         self._replay_buffer = None
         self._update_step = 0
+        
+        if args.dtype == 'bf16':
+            self._dtype = jnp.bfloat16
+        elif args.dtype == 'f16':
+            self._dtype = jnp.float16
+        elif args.dtype == 'f32':
+            self._dtype = jnp.float32
+        else:
+            self._dtype = jnp.float32
 
     def _unpack(self, state):
         if self._mode == MODE.IMG:
@@ -85,7 +96,9 @@ class BaseAgent:
             init_proprioception_shape, 
             self._action_dim, 
             self._net_params,
-            self._rad_offset, 
+            self._rad_offset,
+            self._vision_model,
+            self._dtype,
             self._mode)
 
         self._rng, self._critic_target = init_critic(
@@ -96,6 +109,8 @@ class BaseAgent:
             self._action_dim, 
             self._net_params,
             self._rad_offset, 
+            self._vision_model,
+            self._dtype,
             self._mode)
 
         critic_target_params = copy.deepcopy(self._critic.params)
@@ -110,11 +125,13 @@ class BaseAgent:
             init_proprioception_shape, 
             self._action_dim, 
             self._net_params,
-            self._rad_offset,   
+            self._rad_offset,
+            self._vision_model,
+            self._dtype,   
             self._mode)
 
         self._rng, self._temp = init_temperature(
-            self._rng, self._temp_lr, self._init_temperature)
+            self._rng, self._temp_lr, self._dtype, self._init_temperature)
 
         if self._load_model > 0:
             self._load_model_fnc()
@@ -139,6 +156,7 @@ class BaseAgent:
             self._target_entropy,
             self._update_step % self._actor_update_freq == 0,
             self._update_step % self._critic_target_update_freq == 0,
+            self._dtype,
             self._calculate_grad_norm)
 
         jax.block_until_ready(actor.params)
@@ -191,6 +209,25 @@ class BaseAgent:
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         save_args = orbax_utils.save_args_from_target(ckpt)
         orbax_checkpointer.save(model_dir, ckpt, save_args=save_args)
+        
+    def add(self, state, action, reward, next_state, done, first_step):
+        image, proprioception = self._unpack(state)
+        next_image, next_proprioception = self._unpack(next_state)
+        
+        _, _, c = self._image_shape
+        sc = c // self._image_history
+        
+        image = image[:, :, -sc:]
+        next_image = next_image[:, :, -sc:]
+
+        self._replay_buffer.add(image,  
+                                proprioception, 
+                                action, 
+                                reward, 
+                                next_image,  
+                                next_proprioception, 
+                                done,
+                                first_step)
 
 
 class SACRADAgent(BaseAgent):
@@ -199,32 +236,18 @@ class SACRADAgent(BaseAgent):
         An implementation of the version of Soft-Actor-Critic 
         described in https://arxiv.org/abs/1812.05905
         """
-        super().__init__(args)
+        super().__init__(args) 
 
-        self._obs_queue = mp.Queue()
-
-        self._replay_buffer = AsyncSMRadReplayBuffer(
-            self._image_shape, 
+        self._replay_buffer = AsyncSampleEfficientReplayBuffer(
+            self._single_image_shape, 
             self._proprioception_shape, 
             self._action_shape,
             self._replay_buffer_capacity, 
-            self._batch_size, 
-            self._obs_queue,
-            self._buffer_load_path)
+            self._batch_size,
+            image_history=self._image_history,
+            load_path=self._buffer_load_path)
 
         self._init_models(self._image_shape, self._proprioception_shape)
-
-    def add(self, state, action, reward, next_state, done):
-        image, proprioception = self._unpack(state)
-        next_image, next_proprioception = self._unpack(next_state)
-
-        self._obs_queue.put((image, 
-                             proprioception, 
-                             action, 
-                             reward,
-                             next_image, 
-                             next_proprioception, 
-                             done))
 
     def sample_actions(self, state, deterministic=False):
         if not deterministic:
@@ -280,6 +303,8 @@ class AsyncSACRADAgent(BaseAgent):
             self._action_dim, 
             self._net_params, 
             self._rad_offset,
+            self._vision_model,
+            self._dtype,
             self._mode)
 
         self._actor_params = self._actor_queue.get()
@@ -290,14 +315,14 @@ class AsyncSACRADAgent(BaseAgent):
     def _init_async(self):
         self._closeing_lock.acquire()
 
-        self._replay_buffer = AsyncSMRadReplayBuffer(
-            self._image_shape, 
+        self._replay_buffer = AsyncSampleEfficientReplayBuffer(
+            self._single_image_shape, 
             self._proprioception_shape, 
             self._action_shape,
             self._replay_buffer_capacity, 
-            self._batch_size, 
-            self._obs_queue,
-            self._buffer_load_path)
+            self._batch_size,
+            image_history=self._image_history,
+            load_path=self._buffer_load_path)
 
         self._init_models(self._image_shape, self._proprioception_shape)
         self._actor_queue.put(self._actor.params)
@@ -306,19 +331,6 @@ class AsyncSACRADAgent(BaseAgent):
             self.checkpoint(0)
 
         self._async_tasks()
-
-    def add(self, state, action, reward, next_state, done):
-        image, proprioception = self._unpack(state)
-        next_image, next_proprioception = self._unpack(next_state)
-
-        self._obs_queue.put((image, 
-                             proprioception, 
-                             action, 
-                             reward,
-                             next_image, 
-                             next_proprioception, 
-                             done))
-
 
     def sample_actions(self, state, deterministic=False):
         if not deterministic:
@@ -478,19 +490,31 @@ def sample_deterministic_actions(rng,
 
 @functools.partial(jax.jit, static_argnames=('update_actor',
                                              'update_target',
+                                             'dtype',
                                              'calculate_grad_norm'))
 def update_jit(rng, 
                actor, 
                critic, 
                critic_target, 
                temp, 
-               batch, 
+               batch_l, 
                discount, 
                tau,
                target_entropy, 
                update_actor, 
                update_target,
+               dtype,
                calculate_grad_norm):
+    
+    proprioceptions = jnp.array(batch_l.proprioceptions, dtype=dtype)
+    next_proprioceptions = jnp.array(batch_l.next_proprioceptions, dtype=dtype)
+    actions = jnp.array(batch_l.actions, dtype=dtype)
+    rewards = jnp.array(batch_l.rewards, dtype=dtype)
+    dones = jnp.array(batch_l.dones, dtype=dtype)
+    
+    batch = Batch(images=batch_l.images, proprioceptions=proprioceptions, 
+                  actions=actions, rewards=rewards, dones=dones, 
+                  next_images=batch_l.next_images, next_proprioceptions=next_proprioceptions)
 
     rng, critic_new, critic_info = critic_update(
         rng, 

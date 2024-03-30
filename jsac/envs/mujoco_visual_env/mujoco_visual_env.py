@@ -14,7 +14,7 @@ class MujocoVisualEnv(gym.Wrapper):
         super().__init__(gym.make(env_name))  ### Gym == 0.23.1
         self._mode = mode
         self._img_type = img_type
-        self.seed(seed)
+        # self.seed(seed)
 
         if self._mode == MODE.IMG or self._mode == MODE.IMG_PROP:
             if self._img_type == 'chw':
