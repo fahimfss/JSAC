@@ -33,7 +33,7 @@ class AsyncSampleEfficientReplayBuffer():
                  action_shape,
                  capacity,
                  batch_size,
-                 num_workers=8,
+                 num_workers=2,
                  max_num_episodes=10000,
                  max_episode_lenght=10000,
                  image_history=3,

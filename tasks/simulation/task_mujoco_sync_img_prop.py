@@ -33,34 +33,35 @@ config = {
 def parse_args():
     parser = argparse.ArgumentParser()
     # environment
-    parser.add_argument('--name', default='reacher_sync_img_prop', type=str)
+    parser.add_argument('--name', default='hopper_sync_img_prop', type=str)
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--mode', default='img_prop', type=str, 
                         help="Modes in ['img', 'img_prop', 'prop']")
     
-    parser.add_argument('--env_name', default='Reacher-v2', type=str)
-    parser.add_argument('--image_height', default=100, type=int)
-    parser.add_argument('--image_width', default=100, type=int)
-    parser.add_argument('--image_history', default=3, type=int)
+    parser.add_argument('--env_name', default='Hopper-v2', type=str)
+    parser.add_argument('--image_height', default=192, type=int)
+    parser.add_argument('--image_width', default=192, type=int)
+    parser.add_argument('--image_history', default=6, type=int)
 
     # replay buffer
-    parser.add_argument('--replay_buffer_capacity', default=20000, type=int)
+    parser.add_argument('--replay_buffer_capacity', default=1000000, type=int)
     
     # train
-    parser.add_argument('--init_steps', default=2000, type=int)
-    parser.add_argument('--env_steps', default=20000, type=int)
+    parser.add_argument('--init_steps', default=10000, type=int)
+    parser.add_argument('--env_steps', default=1000000, type=int)
     parser.add_argument('--batch_size', default=256, type=int)
     parser.add_argument('--sync_mode', default=True, action='store_true')
     parser.add_argument('--rad_offset', default=0.01, type=float)
     parser.add_argument('--calculate_grad_norm', default=True, action='store_true')
+    parser.add_argument('--update_every', default=4, type=int)
     
     # critic
-    parser.add_argument('--critic_lr', default=3e-4, type=float)
+    parser.add_argument('--critic_lr', default=7.5e-5, type=float)
     parser.add_argument('--critic_tau', default=0.01, type=float)
     parser.add_argument('--critic_target_update_freq', default=1, type=int)
     
     # actor
-    parser.add_argument('--actor_lr', default=3e-4, type=float)
+    parser.add_argument('--actor_lr', default=7.5e-5, type=float)
     parser.add_argument('--actor_update_freq', default=1, type=int)
     
     # encoder
@@ -75,7 +76,7 @@ def parse_args():
     
     # misc
     ## Available dtypes: bf16, f16, f32 
-    parser.add_argument('--dtype', default='bf16', type=str)
+    parser.add_argument('--dtype', default='f16', type=str)
     parser.add_argument('--work_dir', default='.', type=str)
     parser.add_argument('--save_tensorboard', default=False, action='store_true')
     parser.add_argument('--xtick', default=500, type=int)
@@ -197,7 +198,7 @@ def main(seed=-1):
             L.push(info)
             first_step = True
 
-        if env.total_steps > args.init_steps:
+        if env.total_steps > args.init_steps and env.total_steps % args.update_every == 0:
             update_infos = agent.update()
             if update_infos is not None:
                 for update_info in update_infos:
