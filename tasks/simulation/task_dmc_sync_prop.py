@@ -9,10 +9,9 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 from jsac.helpers.utils import MODE, make_dir, set_seed_everywhere, WrappedEnv
 from jsac.helpers.logger import Logger
-from jsac.envs.mujoco_visual_env.mujoco_visual_env import MujocoVisualEnv
+from jsac.envs.dmc_visual_env.dmc_env import DMCVisualEnv
 from jsac.algo.agent import SACRADAgent, AsyncSACRADAgent
-import time
-from tensorboardX import SummaryWriter
+import time 
 import argparse
 import multiprocessing as mp
 import shutil
@@ -36,19 +35,19 @@ config = {
 def parse_args():
     parser = argparse.ArgumentParser()
     # environment
-    parser.add_argument('--name', default='hopper_sync_prop', type=str)
+    parser.add_argument('--name', default='hopper_hop_sync_prop', type=str)
     parser.add_argument('--seed', default=1, type=int)
-    parser.add_argument('--mode', default='prop', type=str, 
+    parser.add_argument('--mode', default='img_prop', type=str, 
                         help="Modes in ['img', 'img_prop', 'prop']")
     
-    parser.add_argument('--env_name', default='Hopper-v4', type=str)
+    parser.add_argument('--env_name', default='hopper_hop', type=str)
 
     # replay buffer
-    parser.add_argument('--replay_buffer_capacity', default=1000000, type=int)
+    parser.add_argument('--replay_buffer_capacity', default=100000, type=int)
     
     # train
     parser.add_argument('--init_steps', default=10000, type=int)
-    parser.add_argument('--env_steps', default=1000000, type=int)
+    parser.add_argument('--env_steps', default=50000, type=int)
     parser.add_argument('--batch_size', default=256, type=int)
     parser.add_argument('--sync_mode', default=True, action='store_true')
     parser.add_argument('--calculate_grad_norm', default=True, action='store_true')
@@ -56,7 +55,7 @@ def parse_args():
     # critic
     parser.add_argument('--critic_lr', default=3e-4, type=float)
     parser.add_argument('--critic_tau', default=0.005, type=float)
-    parser.add_argument('--clip_global_norm', default=0.25, type=float)
+    parser.add_argument('--clip_global_norm', default=0.5, type=float)
     parser.add_argument('--critic_target_update_freq', default=1, type=int)
     
     # actor
@@ -68,9 +67,15 @@ def parse_args():
     parser.add_argument('--discount', default=0.99, type=float)
     parser.add_argument('--init_temperature', default=0.1, type=float)
     
+    # vision parameters, used when mode is 'img' or 'img_prop'
+    parser.add_argument('--image_height', default=84, type=int)
+    parser.add_argument('--image_width', default=84, type=int)
+    parser.add_argument('--image_history', default=3, type=int)
+    parser.add_argument('--num_cameras', default=1, type=int)
+    parser.add_argument('--spatial_softmax', default=True, action='store_true')
+    parser.add_argument('--rad_offset', default=0.01, type=float)
+    
     # misc
-    ## Available dtypes: bf16, f16, f32 
-    parser.add_argument('--dtype', default='f32', type=str)
     parser.add_argument('--work_dir', default='.', type=str)
     parser.add_argument('--save_tensorboard', default=False, action='store_true')
     parser.add_argument('--xtick', default=10000, type=int)
@@ -92,8 +97,7 @@ def parse_args():
 
 def main(seed=-1):
     args = parse_args()
-
-    assert args.mode == MODE.PROP
+ 
     args.apply_rad = False
     args.spatial_softmax = False
     args.use_critic_encoder = False
@@ -142,22 +146,29 @@ def main(seed=-1):
         L = Logger(args.work_dir, args.xtick, vars(args), 
                    args.save_tensorboard, args.save_wandb)
 
-    env = MujocoVisualEnv(env_name=args.env_name, mode=args.mode, 
-                          seed=args.seed)
+    env = DMCVisualEnv(args.env_name, 
+                       args.mode, 
+                       args.seed,
+                       args.image_history, 
+                       args.image_width, 
+                       args.image_height, 
+                       args.num_cameras)
+    
     env = WrappedEnv(env, start_step=args.start_step, 
                      start_episode=args.start_episode)
 
     set_seed_everywhere(seed=args.seed)
 
     args.image_shape = env.image_space.shape
+    args.single_image_shape = (args.image_height, args.image_width, 3*args.num_cameras)
     args.proprioception_shape = env.proprioception_space.shape
     args.action_shape = env.action_space.shape
     args.env_action_space = env.action_space
     
     if args.sync_mode:
-        agent = SACRADAgent(args)
+        agent = SACRADAgent(vars(args))
     else:
-        agent = AsyncSACRADAgent(args)
+        agent = AsyncSACRADAgent(vars(args))
 
     task_start_time = time.time()
     proprioception = env.reset()
@@ -182,15 +193,14 @@ def main(seed=-1):
 
         if env.total_steps > args.init_steps:
             update_infos = agent.update()
-            if update_infos is not None:
-                if done or env.total_steps %  args.log_every == 0:
-                    for update_info in update_infos:
-                        update_info['action_sample_time'] = (t2 - t1) * 1000
-                        update_info['env_time'] = (t3 - t2) * 1000
-                        update_info['step'] = env.total_steps
-                        update_info['tag'] = 'train'
-                        update_info['dump'] = False
-                        L.push(update_info)
+            if update_infos is not None and env.total_steps %  args.log_every == 0:
+                for update_info in update_infos:
+                    update_info['action_sample_time'] = (t2 - t1) * 1000
+                    update_info['env_time'] = (t3 - t2) * 1000
+                    update_info['step'] = env.total_steps
+                    update_info['tag'] = 'train'
+                    update_info['dump'] = False
+                    L.push(update_info)
                     
         if done:
             proprioception = env.reset()

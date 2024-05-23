@@ -30,15 +30,14 @@ def init_critic(rng,
                 action_dim, 
                 net_params, 
                 rad_offset, 
-                vision_model,
                 dtype,
+                clip_global_norm,
                 mode=MODE.IMG_PROP):
 
     model = CriticModel(net_params, 
                         action_dim, 
                         rad_offset,  
                         mode,
-                        vision_model,
                         dtype)
     
     rng, *keys = random.split(rng, 4)
@@ -55,7 +54,8 @@ def init_critic(rng,
                         init_proprioception, 
                         init_actions)['params']
 
-    tx = optax.adam(learning_rate=learning_rate, mu_dtype=dtype)
+    tx = optax.chain(optax.clip_by_global_norm(clip_global_norm), 
+                     optax.adam(learning_rate=learning_rate))
 
     return rng, TrainState.create(apply_fn=model.apply, 
                                   params=params, 
@@ -68,7 +68,6 @@ def init_inference_actor(rng,
                          action_dim, 
                          net_params, 
                          rad_offset,
-                         vision_model,
                          dtype,
                          mode=MODE.IMG_PROP):
     
@@ -76,7 +75,6 @@ def init_inference_actor(rng,
                        action_dim,  
                        rad_offset, 
                        mode,
-                       vision_model,
                        dtype)
     
     init_image, init_proprioception = get_init_data(
@@ -100,7 +98,6 @@ def init_actor(rng,
                action_dim, 
                net_params, 
                rad_offset,
-               vision_model, 
                dtype,  
                mode=MODE.IMG_PROP):
     
@@ -108,7 +105,6 @@ def init_actor(rng,
                        action_dim,  
                        rad_offset, 
                        mode,
-                       vision_model,
                        dtype)
 
     rng, *keys = random.split(rng, 5)

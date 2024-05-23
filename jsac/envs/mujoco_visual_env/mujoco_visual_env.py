@@ -1,20 +1,17 @@
 import cv2
-import gym
+import gymnasium as gym
 from collections import deque
-import time
-from gym.spaces import Box
+from gymnasium.spaces import Box
 import numpy as np
-import os
 from jsac.helpers.utils import MODE
 
 
 class MujocoVisualEnv(gym.Wrapper):
     def __init__(self, env_name, mode, seed=0, image_stack=1, 
                  image_width=120, image_height=120, img_type='hwc'):
-        super().__init__(gym.make(env_name))  ### Gym == 0.23.1
+        super().__init__(gym.make(env_name, render_mode="rgb_array"))  
         self._mode = mode
         self._img_type = img_type
-        # self.seed(seed)
 
         if self._mode == MODE.IMG or self._mode == MODE.IMG_PROP:
             if self._img_type == 'chw':
@@ -28,6 +25,8 @@ class MujocoVisualEnv(gym.Wrapper):
         else:
             self._image_shape = (0, 0, 0)
 
+        self.env.reset(seed=seed) 
+        
         # remember to reset 
         self._latest_image = None
         self._reset = False
@@ -43,9 +42,10 @@ class MujocoVisualEnv(gym.Wrapper):
 
     def step(self, a):
         assert self._reset
-        ob, reward, done, info = self.env.step(a)
-
+        ob, reward, terminated, truncated, info = self.env.step(a)
+        done = terminated or truncated 
         ob = self._get_ob(ob)
+         
 
         if self._mode == MODE.IMG or self._mode == MODE.IMG_PROP:
             new_img = self._get_new_img()
@@ -63,8 +63,8 @@ class MujocoVisualEnv(gym.Wrapper):
         return (self._latest_image, ob), reward, done, info 
 
     def reset(self):
-        ob = self.env.reset()
-        ob = self._get_ob(ob)
+        ob = self.env.reset() 
+        ob = self._get_ob(ob[0])
 
         if self._mode == MODE.IMG or self._mode == MODE.IMG_PROP:
             new_img = self._get_new_img()
@@ -83,7 +83,7 @@ class MujocoVisualEnv(gym.Wrapper):
         return (self._latest_image, ob)
 
     def _get_new_img(self):
-        img = self.env.render(mode='rgb_array')
+        img = self.env.render()
         if self._img_type == 'chw':
             c, h, w = self._image_shape
         else:

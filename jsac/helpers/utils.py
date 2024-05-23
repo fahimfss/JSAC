@@ -4,7 +4,7 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 import collections
-from gym.core import Env
+from gymnasium.core import Env
 import time
 import seaborn as sns
 import pandas as pd
@@ -44,22 +44,20 @@ def show_learning_curve(fname,
     steps = 0
     rets = []
     end_step = xtick
+    data = []
     for (i, epi_s) in enumerate(ep_lens):
         steps += epi_s 
         ret = returns[i]  
         if steps >= end_step:
             if len(rets) > 0:
-                df = df.append({'Step':end_step, 'Return':mean(rets)}, 
-                                ignore_index=True)
+                data.append([end_step, mean(rets)])
                 rets = []
             while end_step < steps:
                 end_step += xtick
-        
         rets.append(ret) 
-    df = df.append({'Step':end_step, 'Return':mean(rets)},
-                   ignore_index=True)
-    
-
+        
+    data.append([end_step, mean(rets)])
+    df = pd.DataFrame(data, columns=["Step", "Return"])
     ax1 = sns.lineplot(x="Step", y='Return', data=df, 
                     color=sns.color_palette('bright')[0], 
                     linewidth=1.5, errorbar=None)
@@ -113,7 +111,6 @@ class WrappedEnv(Env):
         self._reward_scale = reward_scale
         self._reward_penalty = reward_penalty
         self._steps_penalty = steps_penalty
-        self._spec = EnvSpec(env.spec, self.observation_space, self.action_space)
 
         self._total_steps  = start_step
         self._episode = start_episode
@@ -184,6 +181,7 @@ class WrappedEnv(Env):
 
         wrapped_step = self._wrapped_env.step(scaled_action)
         next_obs, reward, done, info = wrapped_step
+          
         done, info = self._monitor(reward, done, info)
 
         return Step(next_obs, reward * self._reward_scale, done, info)
@@ -241,3 +239,4 @@ class WrappedEnv(Env):
             return hooked
         else:
             return orig_attr
+

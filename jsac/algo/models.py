@@ -1,12 +1,10 @@
 from jsac.helpers.utils import MODE
 from typing import Optional, Sequence, Any
-import flax
 import flax.linen as nn
 import jax 
 import jax.numpy as jnp
 from jax import random, vmap 
-import functools 
-import einops  
+import functools  
 from tensorflow_probability.substrates import jax as tfp
 tfd = tfp.distributions
 tfb = tfp.bijectors
@@ -56,124 +54,10 @@ class SpatialSoftmax(nn.Module):
         return feature_keypoints
     
 
-### MIXER MODEL: https://github.com/google-research/vision_transformer/blob/main/vit_jax/models_mixer.py
-
-class MlpBlock(nn.Module):
-    mlp_dim: int
-    dtype: Any = jnp.bfloat16
-
-    @nn.compact
-    def __call__(self, x):
-        y = nn.Dense(self.mlp_dim, param_dtype=self.dtype)(x)
-        y = nn.gelu(y)
-        return nn.Dense(x.shape[-1], param_dtype=self.dtype)(y)
-
-
-class MixerBlock(nn.Module):
-    """Mixer block layer."""
-
-    tokens_mlp_dim: int
-    channels_mlp_dim: int
-    dtype: Any = jnp.bfloat16
-
-    @nn.compact
-    def __call__(self, x):
-        y = nn.LayerNorm(param_dtype=self.dtype)(x)
-        y = jnp.swapaxes(y, 1, 2)
-        y = MlpBlock(self.tokens_mlp_dim, self.dtype, name="token_mixing")(y)
-        y = jnp.swapaxes(y, 1, 2)
-        x = x + y
-        y = nn.LayerNorm(param_dtype=self.dtype)(x)
-        return x + MlpBlock(self.channels_mlp_dim, self.dtype, name="channel_mixing")(y)
-
-
-class MlpMixer(nn.Module):
-    """Mixer architecture."""
-
-    patch_size: Any
-    num_classes: int
-    num_blocks: int
-    hidden_dim: int
-    tokens_mlp_dim: int
-    channels_mlp_dim: int
-    dtype: Any = jnp.bfloat16
-    model_name: Optional[str] = None
-
-    @nn.compact
-    def __call__(self, inputs):
-        x = nn.Conv(
-            self.hidden_dim,
-            self.patch_size,
-            strides=self.patch_size,
-            name="stem",
-            dtype=self.dtype,
-        )(inputs)
-        x = einops.rearrange(x, "n h w c -> n (h w) c")
-        for _ in range(self.num_blocks):
-            x = MixerBlock(self.tokens_mlp_dim, self.channels_mlp_dim, self.dtype)(x)
-        x = nn.LayerNorm(name="pre_head_layer_norm", dtype=self.dtype)(x)
-        x = jnp.mean(x, axis=1)
-        if self.num_classes:
-            x = nn.Dense(
-                self.num_classes,
-                kernel_init=nn.initializers.zeros,
-                name="head",
-                dtype=self.dtype,
-            )(x)
-        return x
-
-
-def mixer_model(num_classes=None, *, variant=None, **kw):  # pylint: disable=invalid-name
-    """Factory function to easily create a Model variant like "L/16"."""
-
-    if variant is not None:
-        model_size, patch = variant.split("/")
-        kw.setdefault("patch_size", (int(patch), int(patch)))
-        config = {
-            "T": {
-                "hidden_dim": 384,
-                "num_blocks": 6,
-                "channels_mlp_dim": 1536,
-                "tokens_mlp_dim": 192,
-            },
-            "S": {
-                "hidden_dim": 512,
-                "num_blocks": 8,
-                "channels_mlp_dim": 2048,
-                "tokens_mlp_dim": 256,
-            },
-            "B": {
-                "hidden_dim": 768,
-                "num_blocks": 12,
-                "channels_mlp_dim": 3072,
-                "tokens_mlp_dim": 384,
-            },
-            "L": {
-                "hidden_dim": 1024,
-                "num_blocks": 24,
-                "channels_mlp_dim": 4096,
-                "tokens_mlp_dim": 512,
-            },
-            "H": {
-                "hidden_dim": 1280,
-                "num_blocks": 32,
-                "channels_mlp_dim": 5120,
-                "tokens_mlp_dim": 640,
-            },
-            
-        }[model_size]
-
-        for k, v in config.items():
-            kw.setdefault(k, v)
-
-    return MlpMixer(num_classes=num_classes, **kw)
-
-
 class Encoder(nn.Module):
     net_params: dict 
     rad_offset: float = 0.01
     mode: str = MODE.IMG_PROP
-    vision_model: str = "B/16"
     dtype: Any = jnp.bfloat16
 
     @nn.compact
@@ -214,32 +98,26 @@ class Encoder(nn.Module):
         x = images.astype(self.dtype)
         x = (x - 127.5) / 127.5
         
-        if self.vision_model == "spatial_softmax":
-            conv_params = self.net_params['conv']
-            for i, (_, out_channel, kernel_size, stride) in enumerate(conv_params):
-                layer_name = 'encoder_conv_' + str(i)
+        conv_params = self.net_params['conv']
+        for i, (_, out_channel, kernel_size, stride) in enumerate(conv_params):
+            layer_name = 'encoder_conv_' + str(i)
 
-                x = nn.Conv(features=out_channel, 
-                            kernel_size=(kernel_size, kernel_size),
-                            strides=stride,
-                            padding=0,  
-                            kernel_init=nn.initializers
-                            .delta_orthogonal(dtype=self.dtype), 
-                            name=layer_name 
-                )(x)
+            x = nn.Conv(features=out_channel, 
+                        kernel_size=(kernel_size, kernel_size),
+                        strides=stride,
+                        padding=0,  
+                        kernel_init=nn.initializers
+                        .delta_orthogonal(dtype=self.dtype), 
+                        name=layer_name 
+            )(x)
 
-                if i < len(conv_params) - 1:
-                    x = nn.relu(x)
+            if i < len(conv_params) - 1:
+                x = nn.relu(x)
 
-            b, height, width, channel = x.shape
-            x = SpatialSoftmax(width, height, channel, name='encoder_spatialsoftmax', 
-                               dtype=self.dtype)(x)
-        else:
-            x = mixer_model(num_classes=self.net_params['latent'], 
-                            variant=self.vision_model,
-                            dtype=self.dtype,
-                            name='encoder_mixer')(x)
-            
+        b, height, width, channel = x.shape
+        x = SpatialSoftmax(width, height, channel, name='encoder_spatialsoftmax', 
+                            dtype=self.dtype)(x)
+             
         if stop_gradient:
             x = jax.lax.stop_gradient(x)
 
@@ -272,7 +150,6 @@ class ActorModel(nn.Module):
     action_dim: int
     rad_offset: float = 0.01
     mode: str = MODE.IMG_PROP
-    vision_model: str = "B/16"
     dtype: Any = jnp.bfloat16
 
     @nn.compact
@@ -285,7 +162,6 @@ class ActorModel(nn.Module):
         latents = Encoder(self.net_params, 
                           self.rad_offset,
                           self.mode,
-                          self.vision_model,
                           self.dtype,
                           name='encoder')(keys[1:],
                                           images, 
@@ -331,7 +207,6 @@ class CriticModel(nn.Module):
     action_dim: int
     rad_offset: float = 0.01
     mode: str = MODE.IMG_PROP
-    vision_model: str = "B/16"
     dtype: Any = jnp.bfloat16
 
     @nn.compact
@@ -345,7 +220,6 @@ class CriticModel(nn.Module):
         latents = Encoder(self.net_params, 
                           self.rad_offset,
                           self.mode,
-                          self.vision_model,
                           self.dtype,
                           name='encoder')(keys,
                                           images, 

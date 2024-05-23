@@ -9,7 +9,7 @@ from jsac.helpers.utils import show_learning_curve
 from multiprocessing import Queue, Process
 import jaxlib
 import time
-import wandb
+
 
 FORMAT_CONFIG = {
     'rl': {
@@ -24,6 +24,7 @@ FORMAT_CONFIG = {
             ('critic_loss', 'CL', 'float'), 
             ('num_updates', 'NU', 'int'),
             ('update_time', 'UT', 'float'),
+            ('rb_sample_time', 'RBST', 'float'),
             ('action_sample_time', 'AST', 'float'), 
             ('env_time', 'ENVT', 'float'),
             ('elapsed_time', 'ELT', 'float'),
@@ -185,6 +186,7 @@ class Logger(object):
         )
 
         if self._use_wandb:
+            import wandb
             self._use_wandb = True
             id = f'{self._wandb_project_name}-{self._wandb_run_name}'
             wandb.init(
@@ -230,8 +232,9 @@ class Logger(object):
                 if data == 'plot':
                     try:
                         self._plot_returns()
-                    except:
-                        pass
+                    except Exception as e:
+                        print(e)
+                        exit(0)
 
                     continue
 
@@ -279,7 +282,7 @@ class Logger(object):
 
     def close(self):
         self._log_queue.put('close')
-        time.sleep(5)
+        time.sleep(2)
         if self._use_wandb:
             wandb.finish()
 

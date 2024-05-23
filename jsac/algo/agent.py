@@ -1,4 +1,4 @@
-from jsac.algo.se_replay_buffer import AsyncSampleEfficientReplayBuffer, Batch
+from jsac.algo.replay_buffers import ReplayBuffer, AsyncSMReplayBuffer, AsyncSampleEfficientReplayBuffer, Batch
 
 import jax
 from jax import random
@@ -22,59 +22,28 @@ import orbax
 
 class BaseAgent:
     def __init__(self, args):
-        self._rng = jax.random.PRNGKey(args.seed)
-
-        self._seed = args.seed
-        self._mode = args.mode
-        self._proprioception_shape = args.proprioception_shape
-        self._action_shape = args.action_shape
-        self._action_dim = args.action_shape[-1]
-        self._target_entropy = -self._action_dim / 2
-        self._replay_buffer_capacity = args.replay_buffer_capacity
-        self._batch_size = args.batch_size
-        self._critic_tau = args.critic_tau
-        self._actor_update_freq = args.actor_update_freq
-        self._critic_target_update_freq = args.critic_target_update_freq
-        self._discount = args.discount 
-        self._net_params = args.net_params
-        self._critic_lr = args.critic_lr
-        self._actor_lr = args.actor_lr
-        self._temp_lr = args.temp_lr
-        self._calculate_grad_norm = args.calculate_grad_norm
-        self._init_temperature = args.init_temperature
-        self._sync_mode = args.sync_mode 
-        self._save_model = args.save_model
-        self._load_model = args.load_model
-        self._model_dir = args.model_dir
-        self._buffer_save_path = args.buffer_save_path
-        self._buffer_load_path = args.buffer_load_path
-        self._vision_model = args.vision_model 
-        self._image_history = args.image_history
-
-        if self._mode == MODE.IMG or self._mode == MODE.IMG_PROP:
-            self._image_shape = args.image_shape
-            self._single_image_shape = args.single_image_shape
-            self._rad_offset = args.rad_offset
-            self._spatial_softmax = args.spatial_softmax
-        else:
-            self._image_shape = (0,0,0)
+        
+        for key in args:
+            if key == 'seed':
+                self._rng = jax.random.PRNGKey(args[key])
+            elif key == 'action_shape':
+                self._action_shape = args[key]
+                self._action_dim = self._action_shape[-1]
+                self._target_entropy = -self._action_dim / 2
+            else: 
+                setattr(self, f'_{key}', args[key])
+             
+        if self._mode == MODE.PROP:
+            self._image_shape = None
+            self._single_image_shape = None
             self._rad_offset = 0
+            self._image_history = 0
             self._spatial_softmax = False
-
-        if not self._sync_mode:
-            self._actor_sync_freq = args.actor_sync_freq
+        
+        self._dtype = jnp.float32
 
         self._replay_buffer = None
         self._update_step = 0
-        
-        if args.dtype == 'bf16':
-            self._dtype = jnp.bfloat16
-        elif args.dtype == 'f16':
-            self._dtype = jnp.float16
-        elif args.dtype == 'f32':
-            self._dtype = jnp.float32
-        else:
-            self._dtype = jnp.float32
 
     def _unpack(self, state):
         if self._mode == MODE.IMG:
@@ -96,26 +65,12 @@ class BaseAgent:
             init_proprioception_shape, 
             self._action_dim, 
             self._net_params,
-            self._rad_offset,
-            self._vision_model,
-            self._dtype,
-            self._mode)
-
-        self._rng, self._critic_target = init_critic(
-            self._rng, 
-            self._critic_lr, 
-            init_image_shape,
-            init_proprioception_shape, 
-            self._action_dim, 
-            self._net_params,
             self._rad_offset, 
-            self._vision_model,
             self._dtype,
+            self._clip_global_norm,
             self._mode)
 
-        critic_target_params = copy.deepcopy(self._critic.params)
-        self._critic_target = self._critic_target.replace(
-            params=critic_target_params)
+        self._critic_target_params = copy.deepcopy(self._critic.params)
 
         self._rng, self._actor = init_actor(
             self._rng, 
@@ -125,8 +80,7 @@ class BaseAgent:
             init_proprioception_shape, 
             self._action_dim, 
             self._net_params,
-            self._rad_offset,
-            self._vision_model,
+            self._rad_offset, 
             self._dtype,   
             self._mode)
 
@@ -143,12 +97,14 @@ class BaseAgent:
         t1 = time.time()
         
         batch = self._replay_buffer.sample()
+        
+        t2 = time.time()
 
-        self._rng, actor, critic, critic_target, temp, info = update_jit(
+        self._rng, actor, critic, critic_target_params, temp, info = update_jit(
             self._rng,
             self._actor,
             self._critic,
-            self._critic_target,
+            self._critic_target_params,
             self._temp,
             batch,
             self._discount,
@@ -162,12 +118,12 @@ class BaseAgent:
         jax.block_until_ready(actor.params)
         self._actor = actor
         self._critic = critic
-        self._critic_target = critic_target
+        self._critic_target_params = critic_target_params
         self._temp = temp
 
-        t2 = time.time()
-
-        info['update_time'] = (t2 - t1) * 1000
+        t3 = time.time()
+        info['rb_sample_time'] = (t2 - t1) * 1000
+        info['update_time'] = (t3 - t2) * 1000
         info['num_updates'] = self._update_step
 
         return [info]
@@ -177,7 +133,7 @@ class BaseAgent:
         assert os.path.exists(model_dir)
         ckpt = {
             'critic': self._critic,
-            'critic_target': self._critic_target,
+            'critic_target': self._critic_target_params,
             'actor': self._actor,
             'temp': self._temp,
             'step': self._update_step
@@ -185,7 +141,7 @@ class BaseAgent:
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         state_restored = orbax_checkpointer.restore(model_dir, item=ckpt)
         self._critic = state_restored['critic']
-        self._critic_target = state_restored['critic_target']
+        self._critic_target_params = state_restored['critic_target']
         self._actor = state_restored['actor']
         self._temp = state_restored['temp']
         self._update_step = state_restored['step']
@@ -200,7 +156,7 @@ class BaseAgent:
 
         ckpt = {
             'critic': self._critic,
-            'critic_target': self._critic_target,
+            'critic_target': self._critic_target_params,
             'actor': self._actor,
             'temp': self._temp,
             'step': self._update_step
@@ -209,25 +165,41 @@ class BaseAgent:
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         save_args = orbax_utils.save_args_from_target(ckpt)
         orbax_checkpointer.save(model_dir, ckpt, save_args=save_args)
+            
         
     def add(self, state, action, reward, next_state, done, first_step):
         image, proprioception = self._unpack(state)
         next_image, next_proprioception = self._unpack(next_state)
         
-        _, _, c = self._image_shape
-        sc = c // self._image_history
-        
-        image = image[:, :, -sc:]
-        next_image = next_image[:, :, -sc:]
-
-        self._replay_buffer.add(image,  
-                                proprioception, 
-                                action, 
-                                reward, 
-                                next_image,  
-                                next_proprioception, 
-                                done,
-                                first_step)
+        if self._mode == MODE.PROP:
+            self._replay_buffer.add(image,  
+                                    proprioception, 
+                                    action, 
+                                    reward, 
+                                    next_image,  
+                                    next_proprioception, 
+                                    done)
+        else: 
+            # self._obs_queue.put((image,
+            #                      proprioception, 
+            #                      action, 
+            #                      reward, 
+            #                      next_image, 
+            #                      next_proprioception, 
+            #                      done))
+            
+            sc = self._single_image_shape[-1]
+            image = image[:, :, -sc:]
+            next_image = next_image[:, :, -sc:] 
+            
+            self._obs_queue.put((image,
+                                 proprioception, 
+                                 action, 
+                                 reward, 
+                                 next_image, 
+                                 next_proprioception, 
+                                 done, 
+                                 first_step))
 
 
 class SACRADAgent(BaseAgent):
@@ -237,15 +209,24 @@ class SACRADAgent(BaseAgent):
         described in https://arxiv.org/abs/1812.05905
         """
         super().__init__(args) 
-
-        self._replay_buffer = AsyncSampleEfficientReplayBuffer(
-            self._single_image_shape, 
-            self._proprioception_shape, 
-            self._action_shape,
-            self._replay_buffer_capacity, 
-            self._batch_size,
-            image_history=self._image_history,
-            load_path=self._buffer_load_path)
+        
+        if self._mode == MODE.PROP:
+            self._replay_buffer = ReplayBuffer(
+                self._image_shape, 
+                self._proprioception_shape, 
+                self._action_shape,
+                self._replay_buffer_capacity, 
+                self._batch_size,
+                load_path=self._buffer_load_path)
+        else:
+            self._replay_buffer = AsyncSampleEfficientReplayBuffer(
+                self._single_image_shape, 
+                self._proprioception_shape, 
+                self._action_shape,
+                self._replay_buffer_capacity, 
+                self._batch_size,
+                image_history=self._image_history,
+                load_path=self._buffer_load_path)
 
         self._init_models(self._image_shape, self._proprioception_shape)
 
@@ -303,7 +284,6 @@ class AsyncSACRADAgent(BaseAgent):
             self._action_dim, 
             self._net_params, 
             self._rad_offset,
-            self._vision_model,
             self._dtype,
             self._mode)
 
@@ -321,8 +301,18 @@ class AsyncSACRADAgent(BaseAgent):
             self._action_shape,
             self._replay_buffer_capacity, 
             self._batch_size,
+            self._obs_queue,
             image_history=self._image_history,
             load_path=self._buffer_load_path)
+        
+        # self._replay_buffer = AsyncSMReplayBuffer(
+        #     self._image_shape, 
+        #     self._proprioception_shape, 
+        #     self._action_shape,
+        #     self._replay_buffer_capacity, 
+        #     self._batch_size,
+        #     self._obs_queue,
+        #     load_path=self._buffer_load_path)
 
         self._init_models(self._image_shape, self._proprioception_shape)
         self._actor_queue.put(self._actor.params)
@@ -495,7 +485,7 @@ def sample_deterministic_actions(rng,
 def update_jit(rng, 
                actor, 
                critic, 
-               critic_target, 
+               critic_target_params, 
                temp, 
                batch_l, 
                discount, 
@@ -520,19 +510,19 @@ def update_jit(rng,
         rng, 
         actor, 
         critic, 
-        critic_target, 
+        critic_target_params, 
         temp, 
         batch, 
         discount,
         calculate_grad_norm)
 
     if update_target:
-        new_critic_target = target_update(
+        new_critic_target_params = target_update(
             critic_new, 
-            critic_target, 
+            critic_target_params, 
             tau)
     else:
-        new_critic_target = critic_target
+        new_critic_target_params = critic_target_params
 
     if update_actor:
         rng, new_actor, actor_info = actor_update(
@@ -553,7 +543,7 @@ def update_jit(rng,
         actor_info = {}
         alpha_info = {}
 
-    return rng, new_actor, critic_new, new_critic_target, new_temp, {
+    return rng, new_actor, critic_new, new_critic_target_params, new_temp, {
         **critic_info,
         **actor_info,
         **alpha_info

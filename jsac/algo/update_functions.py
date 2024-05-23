@@ -6,7 +6,7 @@ import flax
 def critic_update(rng, 
                   actor, 
                   critic, 
-                  critic_target, 
+                  critic_target_params, 
                   temp, 
                   batch, 
                   discount,
@@ -23,6 +23,8 @@ def critic_update(rng,
         batch.next_proprioceptions,
         True)                           # apply_rad
 
+    critic_target = critic.replace(params=critic_target_params)
+    
     target_Q1, target_Q2 = critic_target.apply_fn(
         {"params": critic_target.params}, 
         keys_crt,
@@ -132,9 +134,9 @@ def temp_update(temp, entropy, target_entropy):
 
     return temp_new, info
 
-def target_update(critic, critic_target, tau):
+def target_update(critic, critic_target_params, tau):
     new_target_params = jax.tree_map(
         lambda p, tp: p * tau + tp * (1 - tau), critic.params,
-        critic_target.params)
+        critic_target_params)
 
-    return critic_target.replace(params=new_target_params)
+    return new_target_params
