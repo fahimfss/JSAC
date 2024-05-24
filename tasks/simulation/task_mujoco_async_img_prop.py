@@ -25,9 +25,9 @@ config = {
         [32, 32, 3, 1],
     ],
     
-    'latent': 50,
+    'latent': 128,
 
-    'mlp': [512, 512],
+    'mlp': [2048, 2048, 512],
 }
 
 def parse_args():
@@ -41,24 +41,25 @@ def parse_args():
     parser.add_argument('--env_name', default='Reacher-v4', type=str)
     parser.add_argument('--image_height', default=90, type=int)
     parser.add_argument('--image_width', default=120, type=int)
+    parser.add_argument('--image_model', default='resnet18', type=str)
     parser.add_argument('--image_history', default=3, type=int)
 
     # replay buffer
     parser.add_argument('--replay_buffer_capacity', default=100000, type=int)
     
     # train
-    parser.add_argument('--init_steps', default=10000, type=int)
+    parser.add_argument('--init_steps', default=2500, type=int)
     parser.add_argument('--env_steps', default=100000, type=int)
     parser.add_argument('--batch_size', default=256, type=int)
     parser.add_argument('--sync_mode', default=False, action='store_true')
     parser.add_argument('--apply_rad', default=True, action='store_true')
-    parser.add_argument('--rad_offset', default=0.01, type=float)
+    parser.add_argument('--rad_offset', default=0.02, type=float)
     parser.add_argument('--calculate_grad_norm', default=True, action='store_true')
     
     # critic
-    parser.add_argument('--critic_lr', default=3e-4, type=float)
+    parser.add_argument('--critic_lr', default=5e-5, type=float)
     parser.add_argument('--critic_tau', default=0.01, type=float)
-    parser.add_argument('--clip_global_norm', default=1.0, type=float)
+    parser.add_argument('--clip_global_norm', default=0.1, type=float)
     parser.add_argument('--critic_target_update_freq', default=1, type=int)
     
     # actor
@@ -78,14 +79,14 @@ def parse_args():
     
     # misc
     ## Available dtypes: bf16, f16, f32 
-    parser.add_argument('--dtype', default='bf16', type=str)
+    parser.add_argument('--dtype', default='f32', type=str)
     parser.add_argument('--work_dir', default='.', type=str)
     parser.add_argument('--save_tensorboard', default=False, 
                         action='store_true')
     parser.add_argument('--xtick', default=500, type=int)
     parser.add_argument('--save_wandb', default=False, action='store_true')
 
-    parser.add_argument('--save_model', default=True, action='store_true')
+    parser.add_argument('--save_model', default=False, action='store_true')
     parser.add_argument('--save_model_freq', default=10000, type=int)
     parser.add_argument('--load_model', default=-1, type=int)
     parser.add_argument('--start_step', default=0, type=int)

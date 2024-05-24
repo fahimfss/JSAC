@@ -66,6 +66,7 @@ class BaseAgent:
             self._action_dim, 
             self._net_params,
             self._rad_offset, 
+            self._image_model,
             self._dtype,
             self._clip_global_norm,
             self._mode)
@@ -81,6 +82,7 @@ class BaseAgent:
             self._action_dim, 
             self._net_params,
             self._rad_offset, 
+            self._image_model,
             self._dtype,   
             self._mode)
 
@@ -99,6 +101,11 @@ class BaseAgent:
         batch = self._replay_buffer.sample()
         
         t2 = time.time()
+        
+        if self._image_model == 'conv':
+            resnet_model = False
+        else:
+            resnet_model = True
 
         self._rng, actor, critic, critic_target_params, temp, info = update_jit(
             self._rng,
@@ -113,8 +120,9 @@ class BaseAgent:
             self._update_step % self._actor_update_freq == 0,
             self._update_step % self._critic_target_update_freq == 0,
             self._dtype,
-            self._calculate_grad_norm)
-
+            self._calculate_grad_norm,
+            resnet_model)
+        
         jax.block_until_ready(actor.params)
         self._actor = actor
         self._critic = critic
@@ -124,7 +132,7 @@ class BaseAgent:
         t3 = time.time()
         info['rb_sample_time'] = (t2 - t1) * 1000
         info['update_time'] = (t3 - t2) * 1000
-        info['num_updates'] = self._update_step
+        info['num_updates'] = self._update_step 
 
         return [info]
 
@@ -284,10 +292,16 @@ class AsyncSACRADAgent(BaseAgent):
             self._action_dim, 
             self._net_params, 
             self._rad_offset,
+            self._image_model,
             self._dtype,
             self._mode)
 
-        self._actor_params = self._actor_queue.get()
+        data = self._actor_queue.get()
+        if self._image_model == 'conv':
+            self._actor_params = data
+        else:
+            self._actor_params = data['params']
+            self._batch_stats = data['batch_stats']
 
         self._actor_update_thread = Thread(target=self._get_actor_param)
         self._actor_update_thread.start()
@@ -315,7 +329,12 @@ class AsyncSACRADAgent(BaseAgent):
         #     load_path=self._buffer_load_path)
 
         self._init_models(self._image_shape, self._proprioception_shape)
-        self._actor_queue.put(self._actor.params)
+        if self._image_model == 'conv':
+            self._actor_queue.put(self._actor.params)
+        else:
+            data = {'params': self._actor.params, 
+                    'batch_stats': self._critic.batch_stats} 
+            self._actor_queue.put(data)
 
         if self._save_model:
             self.checkpoint(0)
@@ -325,11 +344,19 @@ class AsyncSACRADAgent(BaseAgent):
     def sample_actions(self, state, deterministic=False):
         if not deterministic:
             with self._actor_lock:
-                self._rng, actions = sample_actions(
-                    self._rng, 
-                    self._actor_model.apply, 
-                    self._actor_params,
-                    state, self._mode)
+                if self._image_model == 'conv':
+                    self._rng, actions = sample_actions(
+                        self._rng, 
+                        self._actor_model.apply, 
+                        self._actor_params,
+                        state, self._mode)
+                else:
+                    self._rng, actions = sample_actions_resnet(
+                        self._rng, 
+                        self._actor_model.apply, 
+                        self._actor_params,
+                        self._batch_stats,
+                        state, self._mode)
         else:
             with self._actor_lock:
                 self._rng, actions = sample_deterministic_actions(
@@ -356,8 +383,12 @@ class AsyncSACRADAgent(BaseAgent):
             if isinstance(data, str):
                 if data == 'close':
                     return
-            with self._actor_lock:
-                self._actor_params = data
+            with self._actor_lock: 
+                if self._image_model == 'conv':
+                    self._actor_params = data
+                else:
+                    self._actor_params = data['params']
+                    self._batch_stats = data['batch_stats']
 
     def _async_tasks(self):
         while True:
@@ -396,7 +427,12 @@ class AsyncSACRADAgent(BaseAgent):
 
             self._update_queue.put(info[0])
             if self._update_step % self._actor_sync_freq == 0:
-                self._actor_queue.put(self._actor.params)        
+                if self._image_model == 'conv':
+                    self._actor_queue.put(self._actor.params)
+                else:
+                    data = {'params': self._actor.params,
+                            'batch_stats': self._critic.batch_stats} 
+                    self._actor_queue.put(data)
 
     def pause_update(self):
         if self._pause_update:
@@ -457,8 +493,22 @@ def sample_actions(rng,
     _, actions, _, _ = apply_fn({"params": params}, 
                                 keys,
                                 image_ob, 
-                                propri_ob,
-                                False)
+                                propri_ob)
+    return rng, jnp.squeeze(actions, 0)
+
+@functools.partial(jax.jit, static_argnames=('apply_fn', 'mode'))
+def sample_actions_resnet(rng, 
+                          apply_fn, 
+                          params,
+                          batch_stats, 
+                          state, 
+                          mode):
+    rng, *keys = random.split(rng, 4)
+    image_ob, propri_ob = process_state(state, mode)
+    _, actions, _, _ = apply_fn({"params": params, 'batch_stats': batch_stats}, 
+                                keys,
+                                image_ob, 
+                                propri_ob)
     return rng, jnp.squeeze(actions, 0)
 
 
@@ -481,7 +531,8 @@ def sample_deterministic_actions(rng,
 @functools.partial(jax.jit, static_argnames=('update_actor',
                                              'update_target',
                                              'dtype',
-                                             'calculate_grad_norm'))
+                                             'calculate_grad_norm', 
+                                             'resnet_model'))
 def update_jit(rng, 
                actor, 
                critic, 
@@ -494,7 +545,8 @@ def update_jit(rng,
                update_actor, 
                update_target,
                dtype,
-               calculate_grad_norm):
+               calculate_grad_norm,
+               resnet_model):
     
     proprioceptions = jnp.array(batch_l.proprioceptions, dtype=dtype)
     next_proprioceptions = jnp.array(batch_l.next_proprioceptions, dtype=dtype)
@@ -506,7 +558,7 @@ def update_jit(rng,
                   actions=actions, rewards=rewards, dones=dones, 
                   next_images=batch_l.next_images, next_proprioceptions=next_proprioceptions)
 
-    rng, critic_new, critic_info = critic_update(
+    rng, new_critic, critic_info = critic_update(
         rng, 
         actor, 
         critic, 
@@ -514,24 +566,26 @@ def update_jit(rng,
         temp, 
         batch, 
         discount,
-        calculate_grad_norm)
+        calculate_grad_norm,
+        resnet_model)
 
     if update_target:
         new_critic_target_params = target_update(
-            critic_new, 
+            new_critic, 
             critic_target_params, 
             tau)
     else:
         new_critic_target_params = critic_target_params
-
+        
     if update_actor:
         rng, new_actor, actor_info = actor_update(
             rng, 
             actor, 
-            critic_new, 
+            new_critic, 
             temp,
             batch,
-            calculate_grad_norm)
+            calculate_grad_norm,
+            resnet_model)
 
         new_temp, alpha_info = temp_update(
             temp, 
@@ -543,7 +597,7 @@ def update_jit(rng,
         actor_info = {}
         alpha_info = {}
 
-    return rng, new_actor, critic_new, new_critic_target_params, new_temp, {
+    return rng, new_actor, new_critic, new_critic_target_params, new_temp, {
         **critic_info,
         **actor_info,
         **alpha_info

@@ -42,15 +42,16 @@ def parse_args():
     
     parser.add_argument('--image_height', default=160, type=int)
     parser.add_argument('--image_width', default=90, type=int)
+    parser.add_argument('--image_model', default='resnet1', type=str)
     parser.add_argument('--stack_frames', default=3, type=int)
     parser.add_argument('--episode_steps', default=300, type=int)
 
     # replay buffer
-    parser.add_argument('--replay_buffer_capacity', default=200000, type=int)
+    parser.add_argument('--replay_buffer_capacity', default=500, type=int)
     
     # train
-    parser.add_argument('--init_steps', default=3000, type=int)
-    parser.add_argument('--env_steps', default=200000, type=int)
+    parser.add_argument('--init_steps', default=300, type=int)
+    parser.add_argument('--env_steps', default=500, type=int)
     parser.add_argument('--batch_size', default=256, type=int)
     parser.add_argument('--sync_mode', default=False, action='store_true')
     parser.add_argument('--apply_rad', default=True, action='store_true')

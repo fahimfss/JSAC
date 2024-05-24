@@ -576,7 +576,7 @@ class AsyncSampleEfficientReplayBuffer():
                  capacity,
                  batch_size,
                  obs_queue,
-                 num_workers=8,
+                 num_workers=2,
                  max_num_episodes=-1,
                  max_episode_lenght=10000,
                  image_history=3,

@@ -8,9 +8,10 @@ import functools
 from tensorflow_probability.substrates import jax as tfp
 tfd = tfp.distributions
 tfb = tfp.bijectors
+from jsac.algo.resnet import ResNet1, ResNet18, ResNet34, ResNet50, ResNet101, ResNet152, ResNet200 
 
 
-def default_init(scale: Optional[float] = jnp.sqrt(2), dtype: Any = jnp.bfloat16):
+def default_init(scale: Optional[float] = jnp.sqrt(2), dtype: Any = jnp.float32):
     return nn.initializers.orthogonal(scale, dtype=dtype)
 
 
@@ -25,7 +26,7 @@ class SpatialSoftmax(nn.Module):
     height: float
     width: float
     channel: float
-    dtype: Any = jnp.bfloat16
+    dtype: Any = jnp.float32
 
     def setup(self):
       pos_x, pos_y = jnp.meshgrid(
@@ -57,14 +58,16 @@ class SpatialSoftmax(nn.Module):
 class Encoder(nn.Module):
     net_params: dict 
     rad_offset: float = 0.01
+    image_model: str = 'conv'
     mode: str = MODE.IMG_PROP
-    dtype: Any = jnp.bfloat16
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, 
                  keys,
                  images, 
                  proprioceptions, 
+                 training=False,
                  apply_rad=False,
                  stop_gradient=False):          
         
@@ -98,26 +101,49 @@ class Encoder(nn.Module):
         x = images.astype(self.dtype)
         x = (x - 127.5) / 127.5
         
-        conv_params = self.net_params['conv']
-        for i, (_, out_channel, kernel_size, stride) in enumerate(conv_params):
-            layer_name = 'encoder_conv_' + str(i)
+        if self.image_model == 'conv':
+            conv_params = self.net_params['conv']
+            for i, (_, out_channel, kernel_size, stride) in enumerate(conv_params):
+                layer_name = 'encoder_conv_' + str(i)
 
-            x = nn.Conv(features=out_channel, 
-                        kernel_size=(kernel_size, kernel_size),
-                        strides=stride,
-                        padding=0,  
-                        kernel_init=nn.initializers
-                        .delta_orthogonal(dtype=self.dtype), 
-                        name=layer_name 
-            )(x)
+                x = nn.Conv(features=out_channel, 
+                            kernel_size=(kernel_size, kernel_size),
+                            strides=stride,
+                            padding=0,  
+                            kernel_init=nn.initializers
+                            .delta_orthogonal(dtype=self.dtype), 
+                            name=layer_name 
+                )(x)
 
-            if i < len(conv_params) - 1:
-                x = nn.relu(x)
+                if i < len(conv_params) - 1:
+                    x = nn.relu(x)
 
-        b, height, width, channel = x.shape
-        x = SpatialSoftmax(width, height, channel, name='encoder_spatialsoftmax', 
-                            dtype=self.dtype)(x)
-             
+            b, height, width, channel = x.shape
+            x = SpatialSoftmax(width, height, channel, name='encoder_spatialsoftmax', 
+                                dtype=self.dtype)(x)
+            
+        elif self.image_model.startswith('resnet'):
+            resnet_model_no = int(self.image_model[6:])
+            if resnet_model_no == 1:
+                rn_class = ResNet1
+            elif resnet_model_no == 18:
+                rn_class = ResNet18
+            elif resnet_model_no == 34:
+                rn_class = ResNet34
+            elif resnet_model_no == 50:
+                rn_class = ResNet50
+            elif resnet_model_no == 101:
+                rn_class = ResNet101
+            elif resnet_model_no == 152:
+                rn_class = ResNet152
+            elif resnet_model_no == 200:
+                rn_class = ResNet200
+            
+            resnet_model = rn_class(num_classes=self.net_params['latent'], 
+                                    dtype=self.dtype,
+                                    name='encoder_resnet')
+            x = resnet_model(x, training)
+            
         if stop_gradient:
             x = jax.lax.stop_gradient(x)
 
@@ -130,7 +156,7 @@ class Encoder(nn.Module):
 class MLP(nn.Module):
     hidden_dims: Sequence[int]
     activate_final: int = False
-    dtype: Any = jnp.bfloat16
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x):
@@ -149,23 +175,27 @@ class ActorModel(nn.Module):
     net_params: dict 
     action_dim: int
     rad_offset: float = 0.01
+    image_model: str = 'conv'
     mode: str = MODE.IMG_PROP
-    dtype: Any = jnp.bfloat16
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, 
                  keys, 
                  images, 
                  proprioceptions, 
+                 training=False, 
                  apply_rad=False):
 
         latents = Encoder(self.net_params, 
                           self.rad_offset,
+                          self.image_model,
                           self.mode,
                           self.dtype,
                           name='encoder')(keys[1:],
                                           images, 
                                           proprioceptions, 
+                                          training, 
                                           apply_rad,
                                           True)
         
@@ -193,7 +223,7 @@ class ActorModel(nn.Module):
 
 class QFunction(nn.Module):
     hidden_dims: Sequence[int]
-    dtype: Any = jnp.bfloat16
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, latents, actions):
@@ -206,25 +236,29 @@ class CriticModel(nn.Module):
     net_params: dict  
     action_dim: int
     rad_offset: float = 0.01
+    image_model: str = 'conv'
     mode: str = MODE.IMG_PROP
-    dtype: Any = jnp.bfloat16
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, 
                  keys,
                  images, 
                  proprioceptions, 
-                 actions,  
+                 actions,
+                 training=False,  
                  apply_rad=False):
         
         latents = Encoder(self.net_params, 
                           self.rad_offset,
+                          self.image_model,
                           self.mode,
                           self.dtype,
                           name='encoder')(keys,
                                           images, 
-                                          proprioceptions, 
-                                          apply_rad)
+                                          proprioceptions,
+                                          training, 
+                                          apply_rad)     
         
         VmapCritic = nn.vmap(
             QFunction,
@@ -241,7 +275,7 @@ class CriticModel(nn.Module):
 
 class Temperature(nn.Module):
     initial_temperature: float = 1.0
-    dtype: Any = jnp.bfloat16
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self) -> jnp.ndarray:
