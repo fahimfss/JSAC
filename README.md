@@ -67,6 +67,11 @@ cd JSAC
 conda create -n jsac python=3.10
 conda activate jsac
 
+conda install -c conda-forge glew
+conda install -c conda-forge mesalib
+conda install -c anaconda mesa-libgl-cos6-x86_64
+conda install -c menpo glfw3
+
 pip install -U "jax[cuda12]==0.4.30"
 pip install -e .
 ```
@@ -79,4 +84,4 @@ Installing the latest Nvidia driver might be required to run JAX properly
 Run a [task](https://github.com/fahimfss/JSAC/tree/master/tasks/simulation) file using:  
 ```python3 task_mujoco.py --seed 41```  
 
-
+If EGL fails, use prefix: `PYOPENGL_PLATFORM=osmesa MUJOCO_GL=osmesa`
