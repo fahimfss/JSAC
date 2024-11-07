@@ -63,6 +63,9 @@ def parse_args():
     parser.add_argument('--critic_tau', default=0.005, type=float)
     parser.add_argument('--critic_target_update_freq', default=1, type=int)
     
+    # NTK
+    parser.add_argument('--ntk', default=0.0, type=float)
+
     # actor
     parser.add_argument('--actor_lr', default=3e-4, type=float)
     parser.add_argument('--actor_update_freq', default=1, type=int)

@@ -12,7 +12,7 @@ def critic_update(rng,
                   temp, 
                   batch, 
                   discount,
-                  ntk=0.1):
+                  ntk=0.0):
 
     rng, key_ac, key_tq = random.split(rng, 3)
     
@@ -24,6 +24,7 @@ def critic_update(rng,
         batch.next_images, 
         batch.next_proprioceptions) 
 
+    # TODO: Get latent here and compute NTK
     target_Qs = critic_target.apply_fn(
         {"params": critic_target.params}, 
         batch.next_images, 
@@ -156,7 +157,8 @@ def update_jit(rng,
                target_entropy, 
                update_actor, 
                update_target,
-               num_critic_updates):
+               num_critic_updates,
+               ntk,):
     
     rng, key1, key2 = random.split(rng, 3)
 
@@ -186,7 +188,8 @@ def update_jit(rng,
             critic_target_params, 
             temp, 
             m_batch, 
-            discount)
+            discount,
+            ntk)
         
         if update_actor and i == num_critic_updates - 1:
             rng, actor, actor_info = actor_update(
