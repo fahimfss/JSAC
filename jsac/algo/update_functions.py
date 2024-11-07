@@ -11,7 +11,8 @@ def critic_update(rng,
                   critic_target_params, 
                   temp, 
                   batch, 
-                  discount):
+                  discount,
+                  ntk=0.1):
 
     rng, key_ac, key_tq = random.split(rng, 3)
     
@@ -36,16 +37,25 @@ def critic_update(rng,
     target_Q = jnp.expand_dims(target_Q, -1)
 
     def critic_loss_fn(critic_params):
-        qs = critic.apply_fn( 
+        qs, intermediates = critic.apply_fn( 
             {'params': critic_params}, 
             batch.images, 
             batch.proprioceptions, 
-            batch.actions)      
+            batch.actions,
+            mutable=["intermediates"],
+            capture_intermediates=True)
         qs  = jnp.transpose(qs)   
         critic_loss = jnp.mean((qs - target_Q)**2)
         
-        return critic_loss, {
+        latents = intermediates["intermediates"]["latent"][0]
+        ntk_norm = jnp.mean((
+            (1 - jnp.eye(latents.shape[1])[None])
+            * jax.vmap(lambda x: x @ x.T)(latents)
+        ) ** 2)
+
+        return critic_loss + ntk * ntk_norm, {
             'critic_loss': critic_loss,
+            'ntk_norm': ntk_norm,
             'qs': qs.mean()
         }
     

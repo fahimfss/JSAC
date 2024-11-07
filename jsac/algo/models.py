@@ -153,6 +153,7 @@ class QFunction(nn.Module):
     def __call__(self, latents, actions):
         inputs = jnp.concatenate([latents, actions], -1)
         outputs = MLP(self.hidden_dims, activate_final=True, dtype=self.dtype)(inputs)
+        self.sow("intermediates", "latent", outputs)
         critic = nn.Dense(1, kernel_init=default_init(1.0, self.dtype), dtype=self.dtype)(outputs)
         return jnp.squeeze(critic, -1)
 
