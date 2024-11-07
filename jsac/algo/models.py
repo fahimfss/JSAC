@@ -153,9 +153,8 @@ class QFunction(nn.Module):
     def __call__(self, latents, actions):
         inputs = jnp.concatenate([latents, actions], -1)
         outputs = MLP(self.hidden_dims, activate_final=True, dtype=self.dtype)(inputs)
-        self.sow("intermediates", "latent", outputs)
         critic = nn.Dense(1, kernel_init=default_init(1.0, self.dtype), dtype=self.dtype)(outputs)
-        return jnp.squeeze(critic, -1)
+        return jnp.squeeze(critic, -1), outputs
 
 
 class CriticModel(nn.Module):
@@ -190,8 +189,16 @@ class CriticModel(nn.Module):
             split_rngs={"params": True},
             in_axes=None,
             out_axes=0,
-            axis_size=self.num_critic_networks)
-        qs = VmapCritic(self.net_params['mlp'], self.dtype)(x, actions)
+            axis_size=self.num_critic_networks,
+        )
+        qs, latents = VmapCritic(
+            self.net_params['mlp'],
+            self.dtype,
+        )(
+            x,
+            actions,
+        )
+        self.sow("intermediates", "latent", latents)
         
         return qs 
     
