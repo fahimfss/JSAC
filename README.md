@@ -149,7 +149,7 @@ cd JSAC
 conda create -n jsac python=3.10
 conda activate jsac
 
-pip install -U "jax[cuda12]==0.4.30"
+pip install -U "jax[cuda12]==0.6.2"
 pip install -e .
 ```
 
