@@ -3,7 +3,7 @@ import json
 import time
 import wandb
 import shutil 
-import jaxlib
+import jax
 from termcolor import colored
 from collections import defaultdict
 from tensorboardX import SummaryWriter
@@ -179,7 +179,7 @@ class Logger(object):
         
     def push(self, data):
         for k, v in data.items():
-            if isinstance(v, jaxlib.xla_extension.ArrayImpl):
+            if isinstance(v, jax.Array):
                 data[k] = v.item()
             
         self._log_queue.put(data)

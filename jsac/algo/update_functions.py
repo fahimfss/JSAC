@@ -127,7 +127,7 @@ def temp_update(temp, entropy, target_entropy):
 
 
 def target_update(critic, critic_target_params, tau):
-    new_target_params = jax.tree_map(
+    new_target_params = jax.tree.map(
         lambda p, tp: p * tau + tp * (1 - tau), critic.params,
         critic_target_params)
 
