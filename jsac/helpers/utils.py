@@ -227,11 +227,11 @@ class WrappedEnv(Env):
             scaled_action = action
 
         wrapped_step = self._wrapped_env.step(scaled_action)
-        next_obs, reward, done, info = wrapped_step
-          
+        next_state, reward, terminated, truncated, info = wrapped_step
+        done = terminated | truncated
         done, info = self._monitor(reward, done, info)
 
-        return Step(next_obs, reward * self._reward_scale, done, info)
+        return Step(next_state, reward * self._reward_scale, done, info)
 
     def __str__(self):
         return "RealTimeEnv: %s" % self._wrapped_env
